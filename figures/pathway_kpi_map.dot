@@ -1,0 +1,46 @@
+digraph ADHD_KPI_Map {
+  rankdir=LR;
+  splines=ortho;
+  fontname="Helvetica";
+  graph [bgcolor="white", pad="0.08", nodesep="0.22", ranksep="0.32"];
+  node [shape=box, style="rounded,filled", fillcolor="#fffaf0", color="#b7791f", fontname="Helvetica", margin="0.08,0.05"];
+  edge [color="#744210", arrowsize=0.7, penwidth=1.0];
+
+  subgraph cluster_flow {
+    label="Operational Flow";
+    color="#90cdf4";
+    style="rounded";
+    margin=8;
+    A [label="Arrivals"];
+    S [label="Screening"];
+    T [label="Triage"];
+    Q [label="Assessment"];
+    X [label="Exit"];
+    A -> S -> T -> Q -> X;
+  }
+
+  subgraph cluster_metrics {
+    label="Tracked Metrics";
+    color="#f6ad55";
+    style="rounded";
+    margin=8;
+    M1 [label="Total Arrivals"];
+    M3 [label="Patients in System\nat Run End"];
+    M2 [label="Completed Patients"];
+    M4 [label="Per Stage:\nStarted/Completed"];
+    M5 [label="Per Stage:\nQueue and In-Service\n(Max and End-of-Run)"];
+    M6 [label="Completed Patients:\nAverage/Max Time in System"];
+
+    M1 -> M3;
+  }
+
+  A -> M1;
+  X -> M2;
+  S -> M4;
+  T -> M4;
+  Q -> M4;
+  S -> M5;
+  T -> M5;
+  Q -> M5;
+  X -> M6;
+}
