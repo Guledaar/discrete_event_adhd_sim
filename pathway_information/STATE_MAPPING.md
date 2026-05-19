@@ -81,3 +81,41 @@ Planned next step is resource modelling realism:
 1. Working-day and working-hours constraints
 2. Calendar-aware capacity logic
 3. Optional shift and availability variation
+
+## Audit Class Status
+
+**Current Development Stage: Fully Developed**
+
+The Audit class in Iteration 2 is fully developed and operational. It comprehensively tracks:
+
+- Patient arrivals and acceptances at each stage
+- Stage completions and rejections
+- Pathway exits (self-removed, discharged)
+- Diagnosis outcomes (total diagnosed, non-diagnosed)
+- End-of-run inventory tracking
+
+**Current Effectiveness Level: Partial**
+
+While the audit class is feature-complete, its full effectiveness depends on correct resource modeling. Currently:
+
+- ✅ Tracks all pathway flow and patient counts
+- ✅ Reports stage-level throughput
+- ✅ Monitors diagnostic outcomes
+- ⚠️ Cannot effectively report resource utilization (because resources are modeled as 24/7 available)
+- ⚠️ Cannot track working-hours efficiency or shift-based capacity constraints
+
+**Blocking Dependency**
+
+The audit class will become **fully effective** once resource modeling is enhanced with:
+
+1. **Working-day and working-hours constraints** - Allow audit to report queue wait times during operational hours
+2. **Calendar-aware scheduling logic** - Enable tracking of capacity utilization by time-of-day and day-of-week
+3. **Resource-specific metrics** - Support reporting of staff/clinic availability and service delays due to scheduling
+
+**Next Steps**
+
+Resource modeling improvements (Phase 3) will unlock audit class reporting of:
+- Resource utilization rates by stage
+- Working-hours queue dynamics
+- Efficiency metrics (e.g., patients per clinic hour)
+- Wait-time distributions during operational periods
