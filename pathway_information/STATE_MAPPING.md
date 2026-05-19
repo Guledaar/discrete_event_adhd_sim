@@ -1,105 +1,83 @@
-# ADHD Clinical Pathway - State Mapping
+# Autism State Mapping (Iteration 2)
 
-## Pathway Diagram
+## Status
 
-```mermaid
-flowchart LR
-    A([Referral]) --> B([Triage])
-    B --> C([Pre-Assessment])
-    C --> D([Assessment])
-    D --> E([Diagnosis])
-    E --> F([Treatment\nPlanning])
-    F -->|Accepts| G([Active\nTreatment])
-    F -->|Declines| H([Treatment\nDecline])
-    G --> I([Monitoring])
-    G -->|Disengages| H
-    I --> J([Remission])
-    I -->|Disengages| H
-    H -->|Re-referral| A
-    J -->|Relapse| A
-    J -->|Review| I
+State and event mapping is almost completed.
 
-    style A fill:#005EB8,stroke:#003087,stroke-width:2px,color:#fff
-    style B fill:#0072CE,stroke:#003087,stroke-width:2px,color:#fff
-    style C fill:#41B6E6,stroke:#003087,stroke-width:2px,color:#003087
-    style D fill:#41B6E6,stroke:#003087,stroke-width:2px,color:#003087
-    style E fill:#00A499,stroke:#003087,stroke-width:2px,color:#fff
-    style F fill:#00A499,stroke:#003087,stroke-width:2px,color:#fff
-    style G fill:#009639,stroke:#003087,stroke-width:2px,color:#fff
-    style H fill:#DA291C,stroke:#003087,stroke-width:2px,color:#fff
-    style I fill:#78BE20,stroke:#003087,stroke-width:2px,color:#003087
-    style J fill:#78BE20,stroke:#003087,stroke-width:2px,color:#003087
-```
+- Implemented mapping: core diagnostic and post-diagnostic pathway flow.
+- Remaining mapping work: finalize resource-calendar related state behavior.
 
-## States and Transitions
+## Purpose
 
-```yaml
-Referral:
-  description: "Patient referred for ADHD evaluation"
-  next_states:
-    - Triage
+This file maps conceptual pathway states to implemented model stages and counters in `iteration2.ipynb`.
 
-Triage:
-  description: "Initial screening and prioritization"
-  next_states:
-    - Pre-Assessment
+## State-to-Stage Mapping
 
-Pre-Assessment:
-  description: "Preparation for formal assessment"
-  next_states:
-    - Assessment
+1. Referral Arrived
+- Stage: referral entry
+- Related counters: `N_REFERRALS_ARRIVED`
 
-Assessment:
-  description: "Comprehensive clinical evaluation"
-  next_states:
-    - Diagnosis
+2. Triage Decision
+- Stage: referral triage gate
+- Related counters: `N_REF_ACCEPTED`, `N_REF_REJECTED`
 
-Diagnosis:
-  description: "ADHD diagnosis confirmed or ruled out"
-  next_states:
-    - Treatment Planning
+3. Screening
+- Stage: screening service
+- Related counters: `N_SCREENING_ACCEPTED`, `N_SCREENING_COMPLETED`, `N_SCREENING_DISCHARGED`
 
-Treatment Planning:
-  description: "Development of individualized treatment plan"
-  next_states:
-    - Active Treatment
-    - Treatment Decline
+4. Pre-Assessment
+- Stage: pre-assessment service
+- Related counters: `N_PRE_ASSESS_ACCEPTED`, `N_PRE_ASSESS_COMPLETED`, `N_PRE_ASSESS_REJECTED`
 
-Active Treatment:
-  description: "Patient engaged in treatment (medication, therapy, behavioral intervention)"
-  next_states:
-    - Monitoring
-    - Treatment Decline
+5. Assessment
+- Stage: assessment service
+- Related counters: `N_ASSESSMENT_ACCEPTED`, `N_ASSESSMENT_COMPLETED`, `N_NON_DIAGNOSIS_ASSESSMENT`
 
-Treatment Decline:
-  description: "Patient refuses or unable to continue treatment"
-  next_states:
-    - Referral  # Re-referral for future assessment
+6. Further Assessment
+- Stage: further assessment service
+- Related counters: `N_FURTHER_ASSESS_ACCEPTED`, `N_FURTHER_ASSESS_COMPLETED`, `N_NON_DIAGNOSIS_FURTHER_ASSESSMENT`
 
-Monitoring:
-  description: "Ongoing follow-up and treatment adjustment"
-  next_states:
-    - Remission
-    - Treatment Decline
+7. Diagnosis Confirmed
+- Stage: post-assessment diagnostic outcome
+- Related counters: `N_DIAGNOSIS_TOTAL`
 
-Remission:
-  description: "Symptoms managed; patient stable"
-  next_states:
-    - Monitoring
-    - Referral  # If symptoms return
-```
+8. Post-Diagnostic Clinical Support
+- Stage: clinical support branch
+- Related counters: `N_POST_DIAG_CLINICAL_ACCEPTED`, `N_POST_DIAG_CLINICAL_COMPLETED`
 
-## Quick Reference Table
+9. Post-Diagnostic Other Support
+- Stage: other/community support branch
+- Related counters: `N_POST_DIAG_OTHER_ACCEPTED`, `N_POST_DIAG_OTHER_COMPLETED`
 
-| State | Type | Duration | Outcome |
-|-------|------|----------|---------|
-| Referral | Initial | Days-Weeks | → Triage |
-| Triage | Screening | Days | → Pre-Assessment |
-| Pre-Assessment | Prep | Weeks | → Assessment |
-| Assessment | Evaluation | Weeks | → Diagnosis |
-| Diagnosis | Clinical | Days | → Treatment Planning |
-| Treatment Planning | Planning | Days-Weeks | → Active/Decline |
-| Active Treatment | Ongoing | Months-Years | → Monitoring |
-| Treatment Decline | Barrier | Variable | → Referral |
-| Monitoring | Follow-up | Ongoing | → Remission/Decline |
-| Remission | Stable | Ongoing | → Monitoring |
+10. Review / Removal / Discharge
+- Stage: review service and terminal branch
+- Related counters: `N_REMOVAL_DISCHARGE`, `N_SELF_REMOVED`, `N_COMPLETED`
+
+11. Exit / End-of-Run Inventory
+- Stage: pathway exit tracking
+- Related counters: `N_EXITED_TOTAL`, `N_IN_SYSTEM_END`
+
+## Resource Mapping (Current)
+
+Current Iteration 2 design uses one SimPy resource per operational stage:
+
+- screening
+- pre-assessment
+- assessment
+- further assessment
+- post-diagnostic clinical
+- post-diagnostic other
+- review/discharge
+
+Current assumption:
+
+- Resources are modeled as available 24/7.
+- No explicit working-day calendars are applied yet.
+
+## Resource Mapping (Next)
+
+Planned next step is resource modelling realism:
+
+1. Working-day and working-hours constraints
+2. Calendar-aware capacity logic
+3. Optional shift and availability variation
