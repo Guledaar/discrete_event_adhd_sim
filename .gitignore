@@ -49,6 +49,10 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+#linting
+.mypy_cache/
+.pytype/
+.flake8
 # Translations
 *.mo
 *.pot
