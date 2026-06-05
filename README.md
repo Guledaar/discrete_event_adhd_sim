@@ -179,6 +179,10 @@ Implemented in `iterarion3.ipynb`:
 - Used, unused, and released slot tracking.
 - Stage-level and system-level utilisation metrics.
 
+### Resource Modelling Status
+
+The current resource model is a calendar-aware capacity abstraction that has passed internal V&V testing. Resource assumptions are still awaiting NHS stakeholder feedback and may be refined in future iterations. As such, the model should be viewed as a proof-of-concept rather than a final representation of NHS service operations.
+
 ### Phase 4: Verification, Validation, and Replications
 
 Objective:
