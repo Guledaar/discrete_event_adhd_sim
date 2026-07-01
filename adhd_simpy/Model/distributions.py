@@ -285,168 +285,49 @@ class Normal(Distribution):
         return self.rand.normal(loc=self.mean, scale=self.std, size=size)
 
 
-class Gamma(Distribution):
-    '''
-    Convenience class for the gamma distribution.
+    
+class Choice(Distribution):
+    """
+    Convenience class for sampling from a finite set of choices.
 
-    A flexible, strictly-positive distribution commonly used in healthcare
-    DES for service times (e.g. medication titration duration, wait for
-    follow-up appointment).  When shape=1 it reduces to the exponential.
+    Packages up choices, probabilities, seed and random generator.
+    """
 
-    Parameterised by *shape* (k) and *scale* (θ); mean = k * θ.
-    '''
-    def __init__(self, shape, scale, random_seed=None):
-        '''
-        Constructor
+    def __init__(
+        self,
+        choices,
+        probabilities,
+        random_seed=None
+    ):
 
-        Params:
-        ------
-        shape: float
-            Shape parameter (k > 0).
+        if abs(sum(probabilities) - 1.0) > 1e-6:
 
-        scale: float
-            Scale parameter (θ > 0).
+            raise ValueError(
+                "Probabilities must sum to 1."
+            )
 
-        random_seed: int, optional (default=None)
-            A random seed to reproduce samples.
-        '''
-        self.rand = np.random.default_rng(seed=random_seed)
-        self.shape = shape
-        self.scale = scale
+        self.rand = np.random.default_rng(
+            seed=random_seed
+        )
 
-    def sample(self, size=None):
-        return self.rand.gamma(shape=self.shape, scale=self.scale, size=size)
+        self.choices = list(choices)
 
-
-class Erlang(Distribution):
-    '''
-    Convenience class for the Erlang distribution (Gamma with integer shape).
-
-    Used in queueing theory to model the sum of k i.i.d. exponential stages,
-    e.g. a multi-step ADHD assessment that has k sequential phases each with
-    mean duration 1/μ days.
-
-    Parameterised by *shape* k (positive integer) and *scale* θ; mean = k * θ.
-    '''
-    def __init__(self, shape, scale, random_seed=None):
-        '''
-        Constructor
-
-        Params:
-        ------
-        shape: int
-            Number of exponential phases (k ≥ 1).
-
-        scale: float
-            Scale (mean of each exponential phase, θ > 0).
-
-        random_seed: int, optional (default=None)
-            A random seed to reproduce samples.
-        '''
-        if not isinstance(shape, int) or shape < 1:
-            raise ValueError('Erlang shape must be a positive integer.')
-        self.rand = np.random.default_rng(seed=random_seed)
-        self.shape = shape
-        self.scale = scale
+        self.probabilities = list(probabilities)
 
     def sample(self, size=None):
-        return self.rand.gamma(shape=self.shape, scale=self.scale, size=size)
+        """
+        Generate one or more samples.
 
+        Parameters
+        ----------
+        size : int, optional
+            Number of samples to return.
+            If None, returns a single sample.
+        """
 
-class Weibull(Distribution):
-    '''
-    Convenience class for the Weibull distribution.
-
-    Suitable for modelling time-to-event outcomes in the ADHD pathway such
-    as time-to-dropout, time-to-medication-review, or patient survival in
-    the system.  Shape < 1 → decreasing hazard; shape > 1 → increasing.
-
-    Parameterised by *shape* (a) and *scale* (λ); mean = λ * Γ(1 + 1/a).
-    '''
-    def __init__(self, shape, scale, random_seed=None):
-        '''
-        Constructor
-
-        Params:
-        ------
-        shape: float
-            Shape parameter (a > 0).  Controls hazard behaviour.
-
-        scale: float
-            Scale parameter (λ > 0).
-
-        random_seed: int, optional (default=None)
-            A random seed to reproduce samples.
-        '''
-        self.rand = np.random.default_rng(seed=random_seed)
-        self.shape = shape
-        self.scale = scale
-
-    def sample(self, size=None):
-        return self.scale * self.rand.weibull(self.shape, size=size)
-
-
-class Beta(Distribution):
-    '''
-    Convenience class for the Beta distribution.
-
-    Bounded on [0, 1]; ideal for modelling probabilities or proportions
-    that vary across patients in an ADHD pathway, e.g. probability of
-    accepting a referral, medication adherence rate, or comorbidity prevalence.
-    '''
-    def __init__(self, alpha, beta, random_seed=None):
-        '''
-        Constructor
-
-        Params:
-        ------
-        alpha: float
-            Shape parameter α > 0.
-
-        beta: float
-            Shape parameter β > 0.
-
-        random_seed: int, optional (default=None)
-            A random seed to reproduce samples.
-        '''
-        self.rand = np.random.default_rng(seed=random_seed)
-        self.alpha = alpha
-        self.beta = beta
-
-    def sample(self, size=None):
-        return self.rand.beta(self.alpha, self.beta, size=size)
-
-
-class NegativeBinomial(Distribution):
-    '''
-    Convenience class for the negative binomial distribution.
-
-    Models over-dispersed count data — a better fit than Poisson when the
-    variance exceeds the mean.  Useful for the number of ADHD referrals per
-    week/month when referral counts are bursty (e.g. school-term spikes).
-
-    Parameterised by *n* (number of successes) and *p* (success probability);
-    mean = n*(1-p)/p.
-    '''
-    def __init__(self, n, p, random_seed=None):
-        '''
-        Constructor
-
-        Params:
-        ------
-        n: int
-            Number of successes (target).
-
-        p: float
-            Probability of success on each trial (0 < p ≤ 1).
-
-        random_seed: int, optional (default=None)
-            A random seed to reproduce samples.
-        '''
-        self.rand = np.random.default_rng(seed=random_seed)
-        self.n = n
-        self.p = p
-
-    def sample(self, size=None):
-        return self.rand.negative_binomial(self.n, self.p, size=size)
+        return self.rand.choice(
+            self.choices,
+            size=size,
+            p=self.probabilities
+        )
 

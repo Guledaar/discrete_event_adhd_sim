@@ -1,2 +1,1 @@
-__version__ = 0.1
-__author__ = "Guled Abdullahi"
+"""NHS adult autism assessment DES (SimPy)."""
