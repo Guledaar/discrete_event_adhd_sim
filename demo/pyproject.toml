@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adhd-simpy"
+version = "0.1.0"
+description = "NHS adult autism assessment discrete-event simulation (SimPy)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "simpy>=4.0.0",
+    "numpy>=1.21.0",
+    "pandas>=1.3.0",
+    "joblib>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.2.0",
+    "jupyterlab>=3.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["adhd_simpy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
