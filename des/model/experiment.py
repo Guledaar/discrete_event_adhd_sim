@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from adhd_simpy.Model.distributions import Bernoulli, Choice, Exponential, Triangular
-from adhd_simpy.Model.parameters import (
+from des.model.distributions import Bernoulli, Choice, Exponential, Triangular, generate_seed_vector
+from des.model.parameters import (
     DEFAULT_RND_SET,
     DURATION_ASSESSMENT,
     DURATION_FURTHER_ASSESSMENT,
@@ -41,7 +41,9 @@ from adhd_simpy.Model.parameters import (
     WORKFORCE_HOURS_REVIEW,
     WORKFORCE_HOURS_SCREENING,
 )
-from adhd_simpy.Model.utils import derive_daily_slots, triangular_mean_hours
+from des.model.utils import derive_daily_slots, triangular_mean_hours
+
+generate_seed_vector(one_seed_to_rule_them_all=42, size=20)
 
 class Experiment:
     """

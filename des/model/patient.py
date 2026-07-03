@@ -1,7 +1,7 @@
 """Patient SimPy process."""
 
-from adhd_simpy.Model.parameters import MAX_REVIEW_LOOPS
-from adhd_simpy.Model.utils import trace
+from des.model.parameters import MAX_REVIEW_LOOPS
+from des.model.utils import trace
 
 class Patient:
     """

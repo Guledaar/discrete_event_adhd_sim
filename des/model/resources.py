@@ -3,7 +3,7 @@
 import warnings
 from collections import deque
 
-from adhd_simpy.Model.utils import trace
+from des.model.utils import trace
 
 class WorkforceHoursAccountingError(Exception):
     """Released, used, and unused hours do not balance."""

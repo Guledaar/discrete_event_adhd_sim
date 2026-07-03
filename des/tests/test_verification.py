@@ -1,6 +1,6 @@
 """Run packaged V&V checks from iteration4.ipynb Section 21."""
 
-from adhd_simpy.Model.verification import (
+from des.model.verification import (
     run_demand_stress_verification,
     run_flow_conservation_verification,
     run_math_convergence_verification,

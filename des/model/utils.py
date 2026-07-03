@@ -1,6 +1,6 @@
 """Trace and capacity reporting helpers."""
 
-from adhd_simpy.Model import parameters
+from des.model import parameters
 
 
 def trace(msg: str) -> None:

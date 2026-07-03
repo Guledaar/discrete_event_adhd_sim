@@ -1,15 +1,15 @@
 """Automated verification and validation tests."""
 
-from adhd_simpy.Model.audit import Audit
-from adhd_simpy.Model.experiment import Experiment
-from adhd_simpy.Model.parameters import (
+from des.model.audit import Audit
+from des.model.experiment import Experiment
+from des.model.parameters import (
     DURATION_ASSESSMENT,
     DURATION_FURTHER_ASSESSMENT,
     DURATION_PRE_ASSESSMENT,
     DURATION_SCREENING,
     RUN_LENGTH,
 )
-from adhd_simpy.Model.simulation import single_run
+from des.model.simulation import single_run
 
 def print_header(title):
     print("\n" + "=" * 65)

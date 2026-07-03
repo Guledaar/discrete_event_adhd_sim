@@ -7,8 +7,8 @@ import pandas as pd
 import simpy
 from joblib import Parallel, delayed
 
-from adhd_simpy.Model.parameters import MAX_DRAIN_DAYS, N_REP, RUN_LENGTH, WARMUP_DAYS
-from adhd_simpy.Model.system import AutismPathwaySystem
+from des.model.parameters import MAX_DRAIN_DAYS, N_REP, RUN_LENGTH, WARMUP_DAYS
+from des.model.system import AutismPathwaySystem
 
 def single_run(
     experiment,

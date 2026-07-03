@@ -1,15 +1,15 @@
 """Core DES model components."""
 
-from adhd_simpy.Model.audit import Audit
-from adhd_simpy.Model.experiment import Experiment
-from adhd_simpy.Model.patient import Patient
-from adhd_simpy.Model.resources import (
+from des.model.audit import Audit
+from des.model.experiment import Experiment
+from des.model.patient import Patient
+from des.model.resources import (
     WorkforceHoursAccountingError,
     WorkforceHoursQueueConservationError,
     WorkforceHoursResource,
 )
-from adhd_simpy.Model.simulation import multiple_runs, single_run
-from adhd_simpy.Model.system import AutismPathwaySystem
+from des.model.simulation import multiple_runs, single_run
+from des.model.system import AutismPathwaySystem
 
 __all__ = [
     "Audit",

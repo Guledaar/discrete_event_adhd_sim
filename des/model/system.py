@@ -4,9 +4,9 @@ import itertools
 
 import simpy
 
-from adhd_simpy.Model.parameters import RUN_LENGTH
-from adhd_simpy.Model.patient import Patient
-from adhd_simpy.Model.resources import WorkforceHoursResource
+from des.model.parameters import RUN_LENGTH
+from des.model.patient import Patient
+from des.model.resources import WorkforceHoursResource
 
 class AutismPathwaySystem:
     """
