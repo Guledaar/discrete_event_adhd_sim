@@ -1,41 +1,42 @@
-name: adhd-sim
+name: sim_env
+
 channels:
   - conda-forge
   - defaults
+
 dependencies:
-  # Python version
   - python=3.10
 
-  # Core dependencies
-  - simpy>=4.0.0
-  - numpy>=1.21.0
-  - pandas>=1.3.0
+  # DES
+  - simpy>=4.0
+  - vidigi
 
-  # Analysis
-  - scipy>=1.7.0
-  - joblib>=1.1.0
+  # Data
+  - numpy>=1.21
+  - pandas>=1.3
+  - scipy>=1.7
+  - joblib>=1.1
+  - openpyxl
+  - pyyaml
+  - tqdm
 
-  # Visualization
-  - matplotlib>=3.4.0
-  - seaborn>=0.11.0
+  # Visualisation
+  - matplotlib>=3.4
+  - plotly
+  - graphviz
 
-  # Development and testing
-  - pytest>=6.2.0
-  - pytest-cov>=2.12.0
-  - black>=21.5b0
-  - flake8>=3.9.0
-  - pylint>=2.9.0
+  # Interactive
+  - streamlit
 
-  # Documentation
-  - sphinx>=4.0.0
+  # Jupyter
+  - jupyterlab
+  - notebook
+  - ipykernel
+  - ipywidgets
 
-  # Pip dependencies structure
-  - pip
-  - pip:
-      - jupyterlab>=3.0.0
-      - ipywidgets>=7.6.0
-      - nbformat>=5.1.0
-      - nbconvert>=6.0.0
-      - notebook>=6.4.0
-      - ipykernel>=6.0.0
-      - jupyterlab-git>=0.30.0
+  # Development
+  - pytest
+  - pytest-cov
+  - black
+  - flake8
+  - pylint
