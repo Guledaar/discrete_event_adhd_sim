@@ -1,235 +1,208 @@
-# ADHD Discrete Event Simulation
+# NHS Adult Autism Assessment — Discrete Event Simulation
 
-Discrete-event simulation project for modelling neurodevelopmental care pathway
-flow, queue dynamics, appointment capacity, and throughput over time.
+Discrete-event simulation (DES) project for modelling neurodevelopmental care pathway
+flow, queue dynamics, workforce capacity, referral-to-treatment (RTT) times, and
+throughput over time.
 
-Status: active development. The current primary model is Iteration 3 in
-`iterarion3.ipynb`.
+**Status:** active development. The current primary model is **Iteration 4** in
+[`iteration4.ipynb`](iteration4.ipynb), backed by the importable Python package in
+[`des/`](des/).
 
-Note: the repository name refers to ADHD, while the current Iteration 3
-notebook is documented as a full autism assessment pathway model. The README
-therefore describes the current notebook accurately.
+> The repository name refers to ADHD, while the active pathway model is an **NHS adult
+> autism assessment** service. Earlier notebooks (`iteration1`–`iteration3`) document
+> the modelling journey; `des/` is the current implementation.
 
 ## Current Scope
 
-`iterarion3.ipynb` models a patient-level autism assessment pathway using
-SimPy. Referrals arrive on weekdays, move through clinical decision points,
-wait for appointment slots, and exit through rejection, discharge, diagnosis,
-formal discharge, or self-removal.
+The Iteration 4 model simulates a patient-level autism assessment pathway using
+**SimPy**. Referrals arrive on weekdays, move through clinical decision points, wait
+for capacity-constrained appointments, and exit through rejection, discharge,
+diagnosis, formal discharge, or self-removal.
 
-The current pathway stages are:
+Pathway stages:
 
-1. Referral arrival
-2. Referral triage
-3. Screening
-4. Pre-assessment
-5. Assessment
-6. Further assessment
-7. Post-diagnostic support split: clinical vs other support
-8. Review and discharge
-9. Final exit: formally discharged or self-removed
+1. Referral arrival and triage
+2. Screening
+3. Pre-assessment
+4. Assessment
+5. Further assessment (complexity branch)
+6. Diagnostic outcome
+7. Post-diagnostic support (clinical vs other)
+8. Review loop (continue support, formal discharge, or self-removal)
+9. Final exit
 
-## Current Resource Modelling
+## Architecture (Iteration 4)
 
-Iteration 3 moves beyond continuously available SimPy resources. It uses a
-custom `CalendarAwareQueueResource` to model appointment-slot capacity.
+Model logic lives in `des/model/` and is driven from the notebook:
 
-The resource model includes:
+| Module | Role |
+|--------|------|
+| `parameters.py` | Global defaults (demand, durations, branching, workforce hours) |
+| `experiment.py` | Scenario configuration, RNG streams, parameter overrides |
+| `patient.py` | Individual referral processes and pathway logic |
+| `resources.py` | `WorkforceHoursResource` — weekday clinician-hour capacity |
+| `system.py` | `AutismPathwaySystem` — referral generation and coordination |
+| `audit.py` | KPI collection, cohort filtering, RTT samples |
+| `simulation.py` | `single_run()` and `multiple_runs()` replication runners |
+| `verification.py` | Automated V&V test suites |
+| `distributions.py` | Seeded stochastic distributions |
 
-1. Weekday-only referral arrivals.
-2. Weekday-only appointment capacity.
-3. Separate slot capacities for screening, pre-assessment, assessment, further
-   assessment, post-diagnostic clinical support, post-diagnostic other support,
-   and review.
-4. First-in, first-out queues for each pathway stage.
-5. Released, used, and unused appointment-slot counts.
-6. Queue backlog, maximum queue length, and utilisation reporting.
+### Simulation phases
 
-This design is intended to represent booked clinical capacity more realistically
-than always-on 24/7 resources.
+Each replication runs three phases:
+
+```
+Phase 1  WARM-UP     Days [0, warmup_days)                 KPI cohort OFF
+Phase 2  COLLECTION  Days [warmup_days, + run_length)       KPI cohort ON
+Phase 3  DRAIN       After last referral until empty       (max MAX_DRAIN_DAYS)
+```
+
+- **Cohort KPIs** (RTT, diagnosis rate, stage utilisation) apply only to referrals
+  arriving during the collection window.
+- **Warm-up** fills queues before collection; warm-up patients compete for capacity
+  but are excluded from cohort RTT.
+- **Drain** clears patients still in the pathway after collection ends. Without drain
+  (`max_drain_days=0`), slow patients remain and RTT KPIs are biased downward.
+
+Default horizons (`des/model/parameters.py`): 730-day warm-up, 1825-day collection
+(5 years), 3650-day max drain.
+
+### Resource modelling
+
+Iteration 4 uses **`WorkforceHoursResource`** — capacity measured in **clinician hours
+per weekday** (Mon–Fri), not discrete appointment slots.
+
+Features:
+
+- Weekday-only referral arrivals and capacity release
+- Per-stage workforce hour budgets (screening through review)
+- Priority and standard queues; best-fit scheduling within daily hour budget
+- Triangular appointment durations (hours)
+- Released / used / unused hour accounting with end-of-run validation
+
+Iteration 3 (`iteration3.ipynb`) used calendar-aware appointment-slot resources; that
+approach is superseded by workforce-hours modelling in Iteration 4.
 
 ## Key Performance Indicators
 
-The model tracks KPIs aligned with access, flow, backlog, and capacity planning.
+KPIs are collected by `Audit` during the collection cohort and summarised at run end.
 
-### Access KPIs
+### Access / RTT
 
-1. **Referral-to-screening RTT**: mean time from referral to screening.
-2. **Referral-to-pre-assessment RTT**: mean time from referral to
-   pre-assessment.
-3. **Referral-to-assessment RTT**: mean time from referral to assessment.
-4. **Referral-to-further-assessment RTT**: mean time from referral to further
-   assessment.
-5. **Referral-to-diagnosis RTT**: mean time from referral to diagnosis.
+- Referral-to-milestone RTT (screening, pre-assessment, assessment, further
+  assessment, diagnosis, review)
+- Legacy wait-time metrics for comparison
 
-### Flow KPIs
+### Flow
 
-6. **Total arrivals**: number of referrals entering the system.
-7. **Total exits**: number of patients leaving the system.
-8. **Patients in system at end**: remaining unfinished pathway backlog.
-9. **Clinical completions**: patients completing the full clinical pathway.
-10. **Diagnosis rate**: proportion of arrivals with confirmed diagnosis.
+- `ARRIVED_ALL` / `ARRIVED_TOTAL` — all referrals vs cohort only
+- `FLOW_DIAGNOSIS_CONFIRMED` and `FLOW_DIAGNOSIS_RATE_PCT`
+- Stage exit counters (rejections, non-diagnosis, discharges)
+- `IN_SYSTEM_END` — cohort patients remaining at simulation end
 
-### Exit KPIs
+### Queue and capacity
 
-11. **Referral rejections**: referrals rejected at triage.
-12. **Screening discharges**: patients discharged after screening.
-13. **Pre-assessment rejections**: patients rejected at pre-assessment.
-14. **Non-diagnosis at assessment**: patients exiting after assessment.
-15. **Non-diagnosis at further assessment**: patients exiting after further
-    assessment.
-16. **Formal discharges**: patients formally discharged after review.
-17. **Self-removals**: patients leaving through the self-removal route.
+- Mean and peak queue length by stage (`QUEUE_PEAK_ANY_STAGE`)
+- Stage utilisation (`CAPACITY_UTILISATION_*`, 0–1 in raw output)
+- `OVERALL_SYSTEM_UTILISATION` (percent)
 
-### Queue and Capacity KPIs
+### Run validity flags
 
-18. **Mean queue length by stage**: average observed queue size at each stage.
-19. **Total backlog**: patients still waiting across resources at run end.
-20. **Slot usage**: total appointment slots used.
-21. **Utilisation by stage**: proportion of released slots used by each stage.
-22. **Overall capacity utilisation**: used slots divided by released slots.
+- `COHORT_DRAIN_COMPLETE` — all cohort patients exited
+- `COHORT_RTT_VALID` — safe to report cohort RTT KPIs
 
-## Verification and Validation
+## Notebook Guide
 
-Iteration 3 includes dedicated testing and V&V sections inside
-`iterarion3.ipynb`.
+| Notebook | Focus |
+|----------|-------|
+| `iteration1.ipynb` | Baseline end-to-end flow, external resources |
+| `iteration2.ipynb` | Clinical branching, post-diagnostic support, review |
+| `iteration3.ipynb` | Calendar-aware appointment-slot resources, early V&V |
+| **`iteration4.ipynb`** | **Workforce-hours DES, modular `des/` package, warm-up/drain, scenarios, V&V** |
 
-Current tests include:
+`iteration4.ipynb` sections include:
 
-1. **Trace test**: runs a short three-day simulation with event-level logging to
-   inspect patient movement.
-2. **100% triage rejection test**: forces all referrals to exit at triage and
-   checks that no patient reaches downstream stages.
-3. **Stage boundary tests**: checks 100% exit and 0% exit behaviour at triage,
-   screening, pre-assessment, assessment, and further assessment.
-4. **Seed control and reproducibility**: confirms fixed seeds reproduce key
-   outputs.
-5. **Stochastic independence**: confirms unseeded runs can vary.
-6. **Patient flow mass conservation**: checks that arrivals equal exits plus
-   patients still in the system.
-7. **Calendar-aware mathematical convergence**: compares high-capacity
-   simulated RTT values with simplified theoretical expectations.
+- Model overview and default parameters
+- Single trace run (debugging)
+- Single run: drain phase and warm-up comparison (§6.2)
+- Multiple replications — fixed vs random seeds (§6.3)
+- Parameter experiments and multi-run scenario analysis (§7.x)
+- Warm-up / steady-state sensitivity
+- Automated verification (§8)
+- Planned work: provider calibration, intervention analysis (§9)
 
-These checks provide evidence that the model logic, counters, random stream
-handling, and calendar-aware capacity mechanism are behaving as intended. They
-do not replace expert validation of the clinical assumptions.
+Pathway diagrams: [`figures/`](figures/) (`01_patient_pathway.png`, `02_clinical_stage.png`,
+`03_workforce_hours.png`).
 
 ## Current Progress Snapshot
 
-- Pathway mapping: implemented for the Iteration 3 autism assessment pathway.
-- Branching logic: implemented across triage, screening, pre-assessment,
-  assessment, further assessment, post-diagnostic support, and final exit.
-- Resource realism: implemented using weekday calendar-aware appointment slots.
-- Replications: implemented with seeded and unseeded multi-run comparison.
-- V&V: implemented with boundary tests, flow conservation, seed checks, and
-  mathematical convergence checks.
-- Documentation: notebook markdown has been expanded with model summary,
-  resource modelling explanation, code explanations, and V&V interpretation.
+**Implemented**
+
+- Full autism assessment pathway with review loop
+- Modular `des/` package importable from notebooks and tests
+- Workforce-hours capacity with priority queues and best-fit scheduling
+- Warm-up → collection → drain simulation lifecycle with cohort KPI filtering
+- `single_run()` and `multiple_runs()` with fixed and random seed modes
+- Scenario comparison (demand increase, capacity increase) via `Experiment(**kwargs)`
+- Diagnosis rate, RTT, queue, and utilisation KPIs with drain-validity flags
+- Automated V&V: seed reproducibility, flow conservation, RTT cohort checks,
+  mathematical convergence, demand-stress monotonicity
+- Pytest suite in `des/tests/test_verification.py`
+
+**In progress / planned**
+
+- Provider calibration using NHS operational data (`devon_parameters.py` pattern)
+- Dynamic calibration and freeze-state initialisation (§7.4–7.5)
+- External validation against published ICB statistics
+- Intervention analysis and decision-support dashboards (§9)
 
 ## Iteration Phases
 
-### Phase 1: Foundation and Operational Flow
+### Phase 1 — Foundation and operational flow
 
-Objective:
+- End-to-end baseline pathway, stage KPIs, diagram assets
+- Artifacts: `iteration1.ipynb`, `figures/`
 
-- Build an executable SimPy pathway model with configurable capacities and
-  service-time distributions.
+### Phase 2 — Clinical decision branching
 
-Implemented:
+- Diagnosis branches, further assessment, post-diagnostic support, review/discharge
+- Artifact: `iteration2.ipynb`
 
-- End-to-end baseline flow.
-- External resource definition.
-- Stage-level KPI tracking and run-end snapshots.
-- Diagram assets stored in `figures/`.
+### Phase 3 — Calendar-aware appointment slots
 
-Primary artifacts:
+- Weekday slot release, FIFO queues, slot utilisation tracking
+- Artifact: `iteration3.ipynb`
 
-- `iteration1.ipynb`
-- `figures/pathway_modeled_so_far.png`
-- `figures/pathway_kpi_map.png`
+### Phase 4 — Workforce-hours realism and modular package
 
-### Phase 2: Clinical Decision Branching and Extended Pathway
+- Clinician-hour capacity, triangular durations, priority scheduling
+- Extracted model code into `des/`
+- Warm-up, collection cohort, and drain phases
+- Artifact: `iteration4.ipynb`, `des/`
 
-Objective:
+### Phase 5 — Scenarios, calibration, and decision support
 
-- Add post-assessment decision logic and branching outcomes.
-
-Implemented:
-
-- Diagnosed vs non-diagnosed branch.
-- Further-assessment pathway.
-- Post-diagnostic clinical vs other support split.
-- Final review, discharge, and self-removal branch.
-
-Primary artifact:
-
-- `iteration2.ipynb`
-
-### Phase 3: Calendar-Aware Resource Realism
-
-Objective:
-
-- Move from continuously available resources to appointment-slot capacity.
-
-Implemented in `iterarion3.ipynb`:
-
-- Weekday-only arrival logic.
-- Stage-specific weekday appointment-slot release.
-- Calendar-aware FIFO queues.
-- Used, unused, and released slot tracking.
-- Stage-level and system-level utilisation metrics.
-
-### Resource Modelling Status
-
-The current resource model is a calendar-aware capacity abstraction that has passed internal V&V testing. Resource assumptions are still awaiting NHS stakeholder feedback and may be refined in future iterations. As such, the model should be viewed as a proof-of-concept rather than a final representation of NHS service operations.
-
-### Phase 4: Verification, Validation, and Replications
-
-Objective:
-
-- Build confidence in model behaviour and support repeated simulation runs.
-
-Implemented in `iterarion3.ipynb`:
-
-- Short trace run.
-- Boundary-condition testing.
-- Seeded and unseeded replications.
-- Flow conservation verification.
-- Mathematical convergence checks.
-- Final V&V automation cell.
-
-### Phase 5: Outcomes and Scenario Analysis
-
-Objective:
-
-- Extend the model for policy experiments and capacity planning.
-
-Planned scope:
-
-- Multi-scenario comparison tables.
-- Sensitivity analysis on demand, capacity, and branching assumptions.
-- Visualisation and summary dashboards.
-- Optional treatment and follow-up loops beyond diagnosis.
+- Partially implemented: single-run and multi-run scenario tables (§7.2–7.3)
+- Planned: multi-ICB calibration, sensitivity dashboards, optimisation
 
 ## Repository Layout
 
-Current key files and folders:
-
-urrent key files and folders:
-
-- `README.md`
-- `environment.yaml`
-- `iteration1.ipynb`
-- `iteration2.ipynb`
-- `iterarion3.ipynb`
-- `figures/`
-- `pathway_information/`
-  - `PATHWAYS.md`
-  - `STATE_MAPPING.md`
-- `adhd_simpy/`
-  - `Model/`
-    - `ADHD_PATHWAY.PY`
-    - `distributions.py`
+```
+discrete_event_adhd_sim/
+├── README.md
+├── LICENSE
+├── environment.yaml
+├── iteration1.ipynb … iteration4.ipynb   # modelling iterations (4 = current)
+├── des/                                  # Iteration 4 Python package
+│   ├── model/                            # pathway, resources, simulation, V&V
+│   └── tests/                            # pytest V&V wrappers
+├── adhd_simpy/                           # earlier inline model (Iteration 3 era)
+├── figures/                              # pathway diagrams
+├── pathway_information/
+│   ├── PATHWAYS.md
+│   └── STATE_MAPPING.md
+└── demo/                                 # standalone demo copy of the model
+```
 
 ## Setup
 
@@ -238,27 +211,43 @@ urrent key files and folders:
 - Python 3.10+
 - Conda recommended
 
-### Create Environment
+### Create environment
 
 ```bash
 conda env create -f environment.yaml
-conda activate adhd-sim
+conda activate sim_env
 ```
+
+Install the project root on `PYTHONPATH` (notebooks import `des` directly when run
+from the repository root).
 
 ## Run
 
 Open and execute notebook cells in order:
 
-- `iterarion3.ipynb`: current primary Iteration 3 model
-- `iteration2.ipynb`: earlier branching pathway model
-- `iteration1.ipynb`: earlier baseline model
+```bash
+jupyter lab iteration4.ipynb
+```
+
+Recommended order for new users:
+
+1. `iteration4.ipynb` — current model (start here)
+2. `iteration3.ipynb` — prior slot-based resource model
+3. `iteration2.ipynb` / `iteration1.ipynb` — earlier pathway versions
+
+### Run automated tests
+
+```bash
+pytest des/tests/ -v
+```
 
 ## Related Documentation
 
-- pathway_information/PATHWAYS.md
-- pathway_information/STATE_MAPPING.md
-- figures/adhd_pathway.drawio
+- [`pathway_information/PATHWAYS.md`](pathway_information/PATHWAYS.md) — pathway structure
+- [`pathway_information/STATE_MAPPING.md`](pathway_information/STATE_MAPPING.md) — state definitions
+- [`figures/`](figures/) — pathway visualisations
+- [`demo/README.md`](demo/README.md) — standalone demo package
 
 ## License
 
-See LICENSE
+See [LICENSE](LICENSE).
