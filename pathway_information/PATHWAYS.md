@@ -1,103 +1,189 @@
-# ADHD Pathway Models
+# NHS Neurodevelopmental Assessment Pathway
 
 ## Overview
 
-This document describes the pathway currently implemented in the ADHD discrete-event simulation notebooks.
+This document describes the pathway implemented in the current discrete-event simulation
+(DES) model — package [`des/`](../des/), primary demo [`demo.ipynb`](../demo.ipynb).
 
-The active model is implemented in `iteration2.ipynb` and focuses on pathway flow, stage-level queueing, branching, and throughput.
+The model simulates an **NHS neurodevelopmental (autism/ADHD) assessment service**:
+referrals arrive over time, pass triage and administrative review, compete for a **shared
+weekday clinician-hour pool**, complete a variable number of assessment appointments, receive
+a diagnostic outcome, and exit via **virtual support** or a **clinical workshop group**.
 
-## Reference Model
+Earlier multi-stage models (screening, pre-assessment, further assessment, review loop) are
+documented in [`notebooks/`](../notebooks/) iterations 1–4. The **active production pathway**
+is the simplified bottleneck model below.
 
-The simulation framework is informed by structured care pathways similar to the NHS Autism Pathway model structure:
-- Detection and initial triage
-- Diagnostic assessment and further assessment branches
-- Post-diagnostic support branches
-- Monitoring/review and exit outcomes
+## Reference structure
 
-## Implemented Iteration 2 Pathway
+The pathway follows NHS neurodevelopmental assessment logic:
 
-The current modeled flow is:
+- Detection and triage
+- Administrative Patient Tracking List (PTL) management
+- Diagnostic assessment (capacity-constrained)
+- Diagnostic outcome
+- Post-diagnosis support (low-intensity virtual or group clinical workshop)
+- Exit with RTT clock stop
 
-1. Referral arrival
-2. Referral triage
-3. Screening
-4. Pre-assessment
-5. Assessment
-6. Further assessment
-7. Post-diagnostic support split:
-	- Clinical support
-	- Other/community support
-8. Review/discharge
-9. Exit:
-	- Formally discharged
-	- Self-removed
+Pathway diagram: [`figures/nhs-neurodevelopmental-pathway.png`](../figures/nhs-neurodevelopmental-pathway.png)
 
-Early exits occur at multiple gate points (triage rejection, screening discharge, pre-assessment rejection, and non-diagnosis outcomes).
+## Implemented pathway
 
-## Pathway Components
+```
+Referral arrival (weekday inter-arrivals)
+    │
+    ▼
+Triage ── rejected ──► exit (referral_rejected)     [RTT nullified]
+    │ accepted
+    ▼
+Administrative review ── removed ──► exit (admin_removal)   [RTT stops]
+    │ cleared
+    ▼
+Assessment queue ──► appointment 1 … N  (shared workforce hours)
+    │                  (gap between appointments: ASSESSMENT_GAP_DAYS)
+    ▼
+Diagnostic outcome ── no diagnosis ──► exit (no_diagnosis)   [RTT stops at assessment_completion]
+    │ diagnosis
+    ├── virtual support (30%) ──► exit (virtual_support)   [RTT stops at exit_time]
+    │
+    └── clinical workshop (70%) ──► workshop waiting list
+                                      │
+                                      ▼
+                                 group forms (WORKSHOP_GROUP_SIZE)
+                                      │
+                                      ▼
+                                 N workshop sessions (shared capacity)
+                                      │
+                                      ▼
+                                 exit (workshop_complete)   [RTT stops at workshop_start_time]
+```
+
+### Stage summary
+
+| Stage | Capacity? | Notes |
+|-------|-----------|--------|
+| Triage | No | Bernoulli reject (`PCT_REFERRAL_REJECTED`) |
+| Admin review | No | Bernoulli admin removal (`PCT_ADMIN_REMOVAL`) |
+| Assessment | **Yes** — shared weekday hours | 2–6 appointments sampled per patient; triangular duration |
+| Diagnosis | No | Bernoulli positive diagnosis (`PCT_DIAGNOSIS`) |
+| Virtual support | No | Immediate exit (`PCT_VIRTUAL_SUPPORT` of diagnosed) |
+| Clinical workshop | **Yes** — same shared pool | Group sessions; max wait to form group |
+
+## Pathway components
 
 ### Events
 
-Events represent pathway occurrences such as:
+- Referral arrival (`arrival_time`)
+- Triage accept / reject
+- Admin clearance / removal
+- Assessment wait, start, complete (per appointment)
+- Inter-appointment gap
+- Diagnosis positive / negative
+- Virtual support exit
+- Workshop join, group start, session series, completion
 
-- Referral arrival
-- Start of stage service
-- Completion of stage service
-- Branch decision at gate points
-- Pathway exit or completion
+### States (operational)
 
-### States
-
-Operational states are represented by movement through stage queues and services:
-
-- Waiting for stage resource
-- In stage service
-- Exited pathway
-- Completed pathway
+- **Waiting** — in assessment queue or workshop waiting list
+- **In service** — assessment appointment or workshop session in progress
+- **Incomplete pathway** — on PTL (RTT clock running)
+- **Completed / exited** — RTT clock stopped
 
 ### Transitions
 
-Transitions are driven by:
+Driven by:
 
-- SimPy event timing (`yield timeout`)
-- Capacity-limited stage resources
-- Bernoulli branch probabilities
+- SimPy timed events (`yield timeout`)
+- Bernoulli / discrete distributions (`des/distributions.py`)
+- Shared `WorkforceHoursResource` queue (priority new vs returning assessment patients)
+- `WorkshopManager` group formation rules
 
-## Current Progress
+## Resource modelling
 
-- Pathway mapping is almost completed.
-- The next major task is resource modelling realism.
+**Current (demo / `des/` package):**
 
-Current Iteration 2 resource method:
+- One **shared weekday clinician-hour budget** (`WORKFORCE_HOURS_PER_DAY`) for:
+  - All assessment appointments
+  - All workshop sessions
+- Weekday-only capacity release (Mon–Fri); weekends = 0
+- Priority queue: returning assessment patients before new referrals
+- Daily capacity ledger in `Audit.capacity_days` → utilisation KPIs
 
-- Uses SimPy `Resource` objects for each stage.
-- Each stage has its own dedicated resource.
-- Resources are currently modeled as continuously available (24/7).
-- No explicit weekday/weekend or working-hours calendars yet.
+**Historical iterations** (see `notebooks/`):
 
-## Next Resource Modelling Step
+| Iteration | Resource model |
+|-----------|----------------|
+| 1–2 | SimPy `Resource` per stage, 24/7 |
+| 3 | Calendar-aware appointment slots per stage |
+| 4 | Multi-stage workforce-hours resources |
+| **Demo** | Single shared pool + workshop groups |
 
-Planned resource modelling improvements:
+## NHS RTT clock
 
-1. Working-day and working-hours capacity logic
-2. Stage-specific calendar constraints
-3. Optional shift patterns and availability variation
+The **Referral-to-Treatment (RTT)** / PTL clock behaviour:
 
-## Defining Custom Pathways
+| Exit route | RTT clock stops at |
+|------------|-------------------|
+| `referral_rejected` | Nullified (no clock) |
+| `admin_removal` | `exit_time` |
+| `no_diagnosis` | `assessment_completion` |
+| `virtual_support` | `exit_time` |
+| `workshop_complete` | `workshop_start_time` (first definitive treatment) |
 
-Pathways can be customized by defining:
+Patients with an incomplete pathway at the reporting horizon are counted on the
+**Patient Tracking List (PTL)** — KPI `overall_waiting_list_size`.
 
-1. Initial state
-2. Stage sequence and branch points
-3. State transitions
-4. Time distributions for events
-5. Probabilities and exit conditions
-6. Stage resource capacities and calendars
+## Simulation frameworks
 
-## Implementation
+Two runner APIs use the same pathway:
 
-Current implementation files:
+| API | Use |
+|-----|-----|
+| `des.runner.single_run` | Warm-up + collection window |
+| `des.runs.run1` / `run2` / `run3` | Calibration (`T*`), baseline CIs, policy decay |
 
-- `iteration2.ipynb` (primary model)
-- `adhd_simpy/Model/distributions.py` (sampling distributions)
-- `figures/iteration2_model_pathway_human_readable.png` (current pathway diagram)
+Policy levers tested in `demo.ipynb`:
+
+- Increase `workforce_hours_per_day` (capacity)
+- Increase `pct_admin_removal` (administrative removal)
+- Capacity × decay grid sweeps
+
+## Default parameters
+
+See [`des/config.py`](../des/config.py). Key values (notebook may override):
+
+- `REFERRALS_PER_DAY = 1.89`
+- `PCT_REFERRAL_REJECTED = 0.369`
+- `PCT_ADMIN_REMOVAL = 0.10` (10% in demo notebook)
+- `PCT_DIAGNOSIS = 0.75`
+- `PCT_VIRTUAL_SUPPORT = 0.30`
+- `WORKFORCE_HOURS_PER_DAY = 7`
+- Assessment appointments: 2–6 (discrete distribution)
+- Workshop: 8 per group, 6 sessions, 1-week interval
+
+Parameter definitions: [`des/model_docs.py`](../des/model_docs.py).
+
+## Customising the pathway
+
+Override via `Experiment(**kwargs)` or `NOTEBOOK_EXPERIMENT_PARAMETERS` in `demo.ipynb`:
+
+1. Arrival rate (`iat` / `REFERRALS_PER_DAY`)
+2. Branch probabilities (triage, admin, diagnosis, virtual)
+3. Assessment appointment count distribution and gap
+4. Shared capacity (`workforce_hours_per_day`)
+5. Workshop group size, sessions, max wait
+
+## Implementation files
+
+| File | Role |
+|------|------|
+| [`des/patient.py`](../des/patient.py) | Pathway SimPy process |
+| [`des/system.py`](../des/system.py) | Referral generator, system coordination |
+| [`des/workforce.py`](../des/workforce.py) | Shared capacity resource |
+| [`des/workshop_manager.py`](../des/workshop_manager.py) | Workshop waiting list and groups |
+| [`des/audit.py`](../des/audit.py) | Per-patient milestone records |
+| [`des/kpi.py`](../des/kpi.py) | PTL, RTT, flow KPIs |
+| [`demo.ipynb`](../demo.ipynb) | Run 1 / 2 / 3 demonstration |
+
+Legacy iteration notebooks: [`notebooks/iteration1.ipynb`](../notebooks/iteration1.ipynb) …
+[`iteration4.ipynb`](../notebooks/iteration4.ipynb).
