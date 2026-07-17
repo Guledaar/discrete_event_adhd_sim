@@ -1,0 +1,13 @@
+category,rule,status,message
+patient_conservation,timestamp_ordering,PASS,"Referral, assessment and exit timestamps are chronologically ordered."
+appointment_validation,appointment_counts,PASS,Appointment counts are non-negative and completed never exceeds required.
+patient_conservation,diagnosis_requires_assessment,PASS,Every positive diagnosis has an assessment completion timestamp.
+workshop_validation,workshop_timestamp_ordering,PASS,"Workshop join, start and completion timestamps are chronologically ordered."
+patient_conservation,exit_consistency,PASS,Exit route and exit time are populated together.
+capacity_validation,patient_clinician_hours,PASS,Patient clinician hours are non-negative and equal assessment plus workshop hours.
+rtt_validation,rtt_clock_ordering,PASS,RTT clocks and waits are non-negative and nullified referrals have no clock.
+rtt_validation,pathway_waits_non_negative,PASS,All derived pathway waiting times are non-negative.
+waiting_list_validation,waiting_list_stock_identity,PASS,System PTL is greater than or equal to the arrival-cohort waiting list (189 >= 189).
+capacity_validation,capacity_accounting,PASS,"Every capacity day balances released, used, unused and activity hours."
+patient_conservation,live_patient_conservation,PASS,System created 531 patients and audit contains 531 records.
+workshop_validation,live_workshop_stock,PASS,Live workshop waiting plus active stock equals open clinical pathways (15).
