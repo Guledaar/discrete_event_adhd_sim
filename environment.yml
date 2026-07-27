@@ -1,0 +1,43 @@
+# Conda environment for local development, Jupyter, and Streamlit Community Cloud.
+name: sim_env
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+
+  # DES
+  - simpy>=4.0
+  - vidigi
+
+  # Data
+  - numpy>=1.21
+  - pandas>=1.3
+  - scipy>=1.11
+  - joblib>=1.1
+  - openpyxl
+  - pyyaml
+  - tqdm
+
+  # Visualisation
+  - matplotlib>=3.4
+  - plotly
+  - graphviz
+
+  # Interactive
+  - streamlit>=1.28
+
+  # Jupyter
+  - jupyterlab
+  - notebook
+  - ipykernel
+  - ipywidgets
+
+  # Development
+  - pytest
+  - pytest-cov
+  - black
+  - flake8
+  - pylint
