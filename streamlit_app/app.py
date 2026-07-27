@@ -3,6 +3,20 @@
 import sys
 from pathlib import Path
 
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+try:
+    import scipy  # noqa: F401 — des.runners
+except ImportError:
+    import streamlit as st
+
+    st.set_page_config(page_title="NHS Pathway DES — setup error")
+    st.error("Missing **scipy**. Streamlit Cloud: commit root **requirements.txt** and reboot.")
+    st.code("pip install -r requirements.txt")
+    st.stop()
+
 import streamlit as st
 from helpers import init_session_state
 from kpi_reporting import render_session_status_sidebar

@@ -1,4 +1,4 @@
-# Conda environment for local development, Jupyter, and Streamlit Community Cloud.
+# Local Conda environment. Not used by Streamlit Cloud (see requirements.txt at repo root).
 name: sim_env
 
 channels:
@@ -7,12 +7,8 @@ channels:
 
 dependencies:
   - python=3.10
-
-  # DES
   - simpy>=4.0
   - vidigi
-
-  # Data
   - numpy>=1.21
   - pandas>=1.3
   - scipy>=1.11
@@ -20,22 +16,14 @@ dependencies:
   - openpyxl
   - pyyaml
   - tqdm
-
-  # Visualisation
   - matplotlib>=3.4
   - plotly
   - graphviz
-
-  # Interactive
   - streamlit>=1.28
-
-  # Jupyter
   - jupyterlab
   - notebook
   - ipykernel
   - ipywidgets
-
-  # Development
   - pytest
   - pytest-cov
   - black
