@@ -78,7 +78,7 @@ class Patient:
         audit.update_patient(pid, arrival_time=arrival_time)
         trace_referral(arrival_time, pid)
 
-        if self.experiment.referral_reject_dis.sample():
+        if self.experiment.referral_reject_dist.sample():
             audit.update_patient(
                 pid,
                 triage_outcome="rejected",
@@ -91,7 +91,7 @@ class Patient:
         audit.update_patient(pid, triage_outcome="accepted")
         trace_triage_accepted(self.env.now, pid)
 
-        if self.experiment.admin_removal_dis.sample():
+        if self.experiment.admin_removal_dist.sample():
             audit.update_patient(
                 pid,
                 admin_removal=True,
@@ -105,7 +105,7 @@ class Patient:
         trace_admin_cleared(self.env.now, pid)
 
         self.appointments_required = int(
-            self.experiment.assessment_appointment_count_dis.sample()
+            self.experiment.assessment_count_dist.sample()
         )
         audit.update_patient(pid, appointments_required=self.appointments_required)
         trace_assessments_required(self.env.now, pid, self.appointments_required)
@@ -127,7 +127,7 @@ class Patient:
 
         for appointment in range(self.appointments_required):
             appointment_num = appointment + 1
-            duration_hours = float(self.experiment.assessment_times_dis.sample())
+            duration_hours = float(self.experiment.assessment_time_dist.sample())
             priority = (
                 WorkforceHoursResource.PRIORITY_RETURNING
                 if appointment > 0
@@ -175,7 +175,7 @@ class Patient:
         audit = self.audit
         pid = self.patient_id
 
-        if not self.experiment.diagnosis_dis.sample():
+        if not self.experiment.diagnosis_dist.sample():
             audit.update_patient(
                 pid,
                 diagnosis=False,
@@ -188,7 +188,7 @@ class Patient:
         audit.update_patient(pid, diagnosis=True)
         trace_diagnosis(self.env.now, pid, diagnosed=True)
 
-        if self.experiment.virtual_support_dis.sample():
+        if self.experiment.virtual_support_dist.sample():
             audit.update_patient(
                 pid,
                 support_type="virtual",

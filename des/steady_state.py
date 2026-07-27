@@ -1,43 +1,40 @@
-"""Waiting-list stock helper used by the three-run framework."""
+"""Backlog (PTL) stock helper for the three-run framework."""
 
 from __future__ import annotations
 
-import numpy as np
+import pandas as pd
 
 from des.audit import Audit
+from des.run_report import enrich_rtt
 
 
-def count_waiting_list_all_in_system(audit: Audit, now: float) -> int:
+def count_backlog_in_system(audit: Audit, now: float) -> int:
     """
-    Count incomplete pathways at simulation time *now* (all patients).
-
-    Uses the same NHS RTT incomplete rules as :func:`des.kpi.compute_kpis`
-    (:func:`des.kpi._enrich_rtt`), restricted to patients who have already
-    arrived by *now*.
+    Count incomplete RTT pathways in the system at simulation time *now*.
 
     Parameters
     ----------
     audit : Audit
-        Audit holding patient records (typically after simulation ends).
+        Live or finalised audit object; :meth:`~des.audit.Audit.finalize` is
+        called internally.
     now : float
-        Simulation time in days.
+        Simulation time in days at which to snapshot the backlog / PTL.
 
     Returns
     -------
     int
-        Number of patients still in an incomplete pathway.
+        Number of patients with ``rtt_status == "incomplete"`` who have arrived
+        on or before *now*.
     """
-    from des.kpi import _col, _enrich_rtt, _fcol
-
     patients = audit.finalize()
     if patients.empty:
         return 0
 
     now = float(now)
-    arrival = _fcol(patients, "arrival_time")
-    arrived = patients.loc[(~np.isnan(arrival)) & (arrival <= now)].copy()
+    arrival = pd.to_numeric(patients["arrival_time"], errors="coerce")
+    arrived = patients.loc[(arrival.notna()) & (arrival <= now)].copy()
     if arrived.empty:
         return 0
 
-    enriched = _enrich_rtt(arrived, now)
-    return int((_col(enriched, "rtt_pathway_status") == "incomplete").sum())
+    enriched = enrich_rtt(arrived, now)
+    return int((enriched["rtt_status"] == "incomplete").sum())

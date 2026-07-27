@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict
-from typing import Any, Dict, Optional, Tuple, Generator
+import sys
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Dict, Generator, Optional, Tuple
+
+# Allow `python des/verification.py` from repo root (package imports need parent on path).
+if __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import numpy as np
 import pandas as pd
 import simpy
 
 from des.audit import Audit
-from des.kpi import RunResult, compute_kpis
+from des.collection_window import CollectionWindow
 from des.config import (
     PCT_DIAGNOSIS,
     PCT_REFERRAL_REJECTED,
@@ -22,9 +28,27 @@ from des.config import (
     WORKSHOP_NUM_SESSIONS,
 )
 from des.experiment import Experiment
-from des.runner import apply_run_horizons, single_run
+from des.run_report import build_run_report, enrich_rtt
 from des.system import AutismPathwaySystem
 from des.workforce import WorkforceHoursResource
+
+# Weekday hours high enough that assessment/workshop queues are negligible vs baseline.
+INFINITE_CAPACITY_HOURS_PER_DAY = 10_000.0
+
+
+@dataclass
+class VerificationReport:
+    """Legacy-shaped KPI bundle built from ``run_report`` audit tables."""
+
+    summary: Dict[str, Any]
+    patients: pd.DataFrame
+    appointments: pd.DataFrame
+    workshops: pd.DataFrame
+    resource_days: pd.DataFrame
+    queue_snapshots: pd.DataFrame
+    waiting_list: pd.DataFrame
+    verified: bool = True
+    validation_report: pd.DataFrame = field(default_factory=pd.DataFrame)
 
 
 def _header(name: str) -> None:
@@ -37,12 +61,212 @@ def _pass(message: str) -> None:
     print(f"  PASS  {message}")
 
 
-def _run(
+def _collection_cohort(patients: pd.DataFrame, window: CollectionWindow) -> pd.DataFrame:
+    arrival = patients["arrival_time"].astype(float)
+    return patients.loc[(arrival >= window.start) & (arrival < window.end)].copy()
+
+
+def _event_in_window(
+    patients: pd.DataFrame,
+    milestone_col: str,
+    window: CollectionWindow,
+) -> pd.Series:
+    times = pd.to_numeric(patients[milestone_col], errors="coerce")
+    return times.notna() & (times >= window.start) & (times < window.end)
+
+
+def _appointments_table(patients: pd.DataFrame) -> pd.DataFrame:
+    if patients.empty:
+        return pd.DataFrame()
+    counts = pd.to_numeric(patients["appointments_completed"], errors="coerce").fillna(0).astype(int)
+    keep = counts > 0
+    if not keep.any():
+        return pd.DataFrame()
+    subset = patients.loc[keep]
+    n = counts[keep].to_numpy()
+    hours = pd.to_numeric(subset["assessment_hours_consumed"], errors="coerce").fillna(0.0).to_numpy() / n
+    starts = np.cumsum(np.r_[0, n[:-1]])
+    appt = np.arange(int(n.sum())) - np.repeat(starts, n) + 1
+    return pd.DataFrame(
+        {
+            "patient_id": np.repeat(subset["patient_id"].to_numpy(), n).astype(int),
+            "appointment_number": appt,
+            "duration_hours": np.repeat(hours, n),
+        }
+    )
+
+
+def _workshops_table(patients: pd.DataFrame, experiment: Experiment) -> pd.DataFrame:
+    grouped = patients.dropna(subset=["workshop_group_id"]) if not patients.empty else patients
+    if grouped.empty:
+        return pd.DataFrame()
+    n_sess = experiment.workshop_num_sessions
+    gap = experiment.workshop_session_interval_weeks * 7
+    rows = []
+    for gid, grp in grouped.groupby("workshop_group_id", sort=False):
+        start = float(grp["workshop_start_time"].iloc[0])
+        join = float(grp["workshop_join_time"].iloc[0])
+        per = float(grp["workshop_hours_consumed"].sum()) / n_sess if n_sess else 0.0
+        ids = grp["patient_id"].astype(int).tolist()
+        for session in range(1, n_sess + 1):
+            rows.append(
+                {
+                    "workshop_id": int(gid),
+                    "patient_ids": ids,
+                    "session_number": session,
+                    "duration_hours": per,
+                    "clinician_hours": per,
+                    "start_time": start + (session - 1) * gap,
+                    "group_size": len(grp),
+                    "queue_entry_time": join,
+                    "waiting_time": start - join,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _summary_from_report(
+    all_patients: pd.DataFrame,
+    cohort: pd.DataFrame,
+    run_report,
+    window: CollectionWindow,
+    experiment: Experiment,
+    *,
+    all_patients_full: pd.DataFrame,
+) -> Dict[str, Any]:
+    sim_end = window.end
+    start = window.start
+    all_rtt = enrich_rtt(all_patients_full, sim_end)
+    cohort_rtt = enrich_rtt(cohort, sim_end)
+
+    referrals = len(cohort)
+    rejected = int((cohort["triage_outcome"] == "rejected").sum())
+    nullified = int((cohort_rtt["rtt_status"] == "nullified").sum())
+    cohort_incomplete = int((cohort_rtt["rtt_status"] == "incomplete").sum())
+
+    stop = pd.to_numeric(all_rtt["rtt_clock_stop"], errors="coerce")
+    completed_in_window = (
+        (all_rtt["rtt_status"] == "completed")
+        & stop.notna()
+        & (stop >= start)
+        & (stop < sim_end)
+    )
+    rtt_completed_pathways = int(completed_in_window.sum())
+
+    ptl_waits = all_rtt.loc[all_rtt["rtt_status"] == "incomplete", "rtt_wait_days"]
+    ptl_mean = float(ptl_waits.mean()) if len(ptl_waits) else float("nan")
+
+    completed_excl_admin = cohort_rtt.loc[
+        (cohort_rtt["rtt_status"] == "completed")
+        & (cohort_rtt["exit_route"] != "admin_removal")
+    ]
+    rtt_completed_mean = (
+        float(completed_excl_admin["rtt_wait_days"].mean())
+        if not completed_excl_admin.empty
+        else float("nan")
+    )
+
+    activity = run_report.activity_flow
+    util = run_report.capacity_utilisation.iloc[0] if not run_report.capacity_utilisation.empty else {}
+
+    def _activity_count(metric: str) -> int:
+        if metric not in activity.index:
+            return 0
+        return int(activity.loc[metric, "count_in_window"])
+
+    assessment_done = _event_in_window(all_patients_full, "assessment_completion", window)
+    diagnosed = assessment_done & (all_patients_full["diagnosis"] == True)  # noqa: E712
+    clinical = diagnosed & (all_patients_full["support_type"] == "clinical")
+    exited = _event_in_window(all_patients_full, "exit_time", window)
+
+    workshops = _workshops_table(
+        all_patients_full.loc[_event_in_window(all_patients_full, "workshop_start_time", window)],
+        experiment,
+    )
+
+    released = float(util.get("hours_released", 0.0))
+    used = float(util.get("hours_used", 0.0))
+
+    clinical_open = (
+        (all_patients_full["support_type"] == "clinical")
+        & (
+            all_patients_full["exit_time"].isna()
+            | (pd.to_numeric(all_patients_full["exit_time"], errors="coerce") >= sim_end)
+        )
+    )
+
+    return {
+        "referrals": referrals,
+        "referrals_accepted": referrals - rejected,
+        "referrals_rejected": rejected,
+        "rtt_clocks_nullified": nullified,
+        "rtt_incomplete_pathways": cohort_incomplete,
+        "rtt_completed_pathways": rtt_completed_pathways,
+        "rtt_completed_mean_days": rtt_completed_mean,
+        "ptl_mean_wait_days": ptl_mean,
+        "mean_waiting_list_size": float(cohort_incomplete),
+        "waiting_list_snapshot": float(cohort_incomplete),
+        "patients_completed_assessment": _activity_count("assessments_finished_in_window")
+        or int(assessment_done.sum()),
+        "diagnoses": _activity_count("diagnoses_in_window") or int(diagnosed.sum()),
+        "assessment_appointments_completed": len(
+            _appointments_table(all_patients_full.loc[assessment_done])
+        ),
+        "clinical_supports_enrolled": int(clinical.sum()),
+        "clinical_supports_completed": int(
+            (exited & (all_patients_full["exit_route"] == "workshop_complete")).sum()
+        ),
+        "clinical_supports_in_pathway": int(clinical_open.sum()),
+        "virtual_supports": int(
+            (exited & (all_patients_full["exit_route"] == "virtual_support")).sum()
+        ),
+        "workshop_sessions": len(workshops),
+        "clinician_hours_released": released,
+        "overall_clinician_utilisation": (used / released) if released else float("nan"),
+        "capacity_used_pct": float((used / released) * 100.0) if released else float("nan"),
+        "backlog_patients_at_horizon": float(cohort_incomplete),
+    }
+
+
+def _validate_run(
+    cohort: pd.DataFrame,
+    all_patients: pd.DataFrame,
+    resource: pd.DataFrame,
+    *,
+    system: Optional[AutismPathwaySystem] = None,
+) -> bool:
+    if cohort.empty:
+        return False
+    accepted = int((cohort["triage_outcome"] == "accepted").sum())
+    rejected = int((cohort["triage_outcome"] == "rejected").sum())
+    if len(cohort) != accepted + rejected:
+        return False
+
+    if not resource.empty:
+        for _, row in resource.iterrows():
+            if not math.isclose(
+                row["hours_released"],
+                row["hours_used"] + row["hours_unused"],
+                rel_tol=1e-9,
+                abs_tol=1e-9,
+            ):
+                return False
+
+    if system is not None:
+        created = int(system.next_patient_id) - 1
+        if created != len(all_patients):
+            return False
+    return True
+
+
+def _simulate(
     warmup_days: int = 0,
     collection_days: int = 365,
     rep: int = 0,
+    *,
+    with_system: bool = False,
     **experiment_kwargs: Any,
-) -> Tuple[Audit, RunResult, Dict[str, Any]]:
+) -> Tuple[Audit, VerificationReport, Dict[str, Any], Optional[AutismPathwaySystem]]:
     workforce_hours = experiment_kwargs.pop(
         "workforce_hours_per_day", WORKFORCE_HOURS_PER_DAY
     )
@@ -53,15 +277,97 @@ def _run(
         workforce_hours_per_day=workforce_hours,
         **experiment_kwargs,
     )
-    results = single_run(
-        experiment,
-        rep=rep,
-        warmup_days=warmup_days,
-        collection_days=collection_days,
-        export_results=False,
+    window = CollectionWindow(float(warmup_days), float(collection_days))
+    audit.reset(warmup_days=warmup_days, collection_days=collection_days)
+    experiment.warmup_days = float(warmup_days)
+    experiment.collection_days = float(collection_days)
+    experiment.run_length = window.end
+    if experiment.use_fixed_seed:
+        experiment.set_random_no_set(rep)
+
+    env = simpy.Environment()
+    system = AutismPathwaySystem(env, experiment)
+    env.process(system.run())
+    env.run(until=window.end)
+
+    all_patients = audit.finalize()
+    capacity = pd.DataFrame(audit.capacity_days)
+    run_report = build_run_report(
+        all_patients,
+        capacity,
+        sim_end=window.end,
+        flow_window_days=float(collection_days),
+        model_params=experiment.to_kwargs(),
     )
-    assert experiment.last_result is not None
-    return audit, experiment.last_result, results
+
+    cohort = _collection_cohort(all_patients, window)
+    cohort_enriched = enrich_rtt(cohort, window.end)
+    assessment_done = _event_in_window(all_patients, "assessment_completion", window)
+    workshop_started = _event_in_window(all_patients, "workshop_start_time", window)
+
+    summary = _summary_from_report(
+        cohort,
+        cohort,
+        run_report,
+        window,
+        experiment,
+        all_patients_full=all_patients,
+    )
+    summary.update(
+        {
+            "rep": rep,
+            "warmup_days": warmup_days,
+            "collection_days": collection_days,
+            "run_length": window.end,
+        }
+    )
+
+    if with_system:
+        assessment_queue = system.workforce.waiting_count
+        workshop_queue = system.workshop_manager.waiting_count
+        queue_snapshots = pd.DataFrame(
+            [
+                {
+                    "time": window.end,
+                    "assessment_queue": assessment_queue,
+                    "workshop_queue": workshop_queue,
+                    "total_queue": assessment_queue + workshop_queue,
+                }
+            ]
+        )
+    else:
+        queue_snapshots = pd.DataFrame()
+
+    verification = VerificationReport(
+        summary=summary,
+        patients=cohort_enriched,
+        appointments=_appointments_table(all_patients.loc[assessment_done]),
+        workshops=_workshops_table(all_patients.loc[workshop_started], experiment),
+        resource_days=capacity,
+        queue_snapshots=queue_snapshots,
+        waiting_list=pd.DataFrame(
+            [{"time": window.end, "waiting_list_size": summary["waiting_list_snapshot"]}]
+        ),
+        verified=_validate_run(cohort, all_patients, capacity, system=system if with_system else None),
+    )
+    experiment.last_result = verification
+    return audit, verification, summary, system if with_system else None
+
+
+def _run(
+    warmup_days: int = 0,
+    collection_days: int = 365,
+    rep: int = 0,
+    **experiment_kwargs: Any,
+) -> Tuple[Audit, VerificationReport, Dict[str, Any]]:
+    audit, report, results, _ = _simulate(
+        warmup_days,
+        collection_days,
+        rep,
+        with_system=False,
+        **experiment_kwargs,
+    )
+    return audit, report, results
 
 
 def _run_with_system(
@@ -69,34 +375,15 @@ def _run_with_system(
     collection_days: int = 365,
     rep: int = 0,
     **experiment_kwargs: Any,
-) -> Tuple[Audit, RunResult, Dict[str, Any], AutismPathwaySystem]:
-    workforce_hours = experiment_kwargs.pop(
-        "workforce_hours_per_day", WORKFORCE_HOURS_PER_DAY
-    )
-    audit = Audit()
-    experiment = Experiment(
-        audit=audit,
-        use_fixed_seed=True,
-        workforce_hours_per_day=workforce_hours,
+) -> Tuple[Audit, VerificationReport, Dict[str, Any], AutismPathwaySystem]:
+    audit, report, results, system = _simulate(
+        warmup_days,
+        collection_days,
+        rep,
+        with_system=True,
         **experiment_kwargs,
     )
-    if experiment.use_fixed_seed:
-        experiment.set_random_no_set(rep)
-
-    apply_run_horizons(experiment, float(warmup_days), float(collection_days))
-    env = simpy.Environment()
-    system = AutismPathwaySystem(env, experiment)
-    env.process(system.run())
-    env.run(until=audit.window.end)
-    report = compute_kpis(
-        audit.finalize(), audit.window, experiment, system, audit.capacity_days
-    )
-
-    results = dict(report.summary)
-    results["rep"] = rep
-    results["warmup_days"] = warmup_days
-    results["collection_days"] = collection_days
-    results["run_length"] = experiment.run_length
+    assert system is not None
     return audit, report, results, system
 
 
@@ -113,6 +400,119 @@ def _rtt_value(results: Dict[str, Any], missing: float) -> float:
     ):
         return float(ptl_wait)
     return missing
+
+
+def _pre_assessment_queue_days(patients: pd.DataFrame) -> pd.Series:
+    """Days from referral arrival to first assessment service (workforce scheduler wait)."""
+    arrival = pd.to_numeric(patients["arrival_time"], errors="coerce")
+    start = pd.to_numeric(patients["assessment_start"], errors="coerce")
+    return start - arrival
+
+
+def _workshop_queue_days(patients: pd.DataFrame) -> pd.Series:
+    """Days from workshop queue join to workshop programme start."""
+    join_t = pd.to_numeric(patients["workshop_join_time"], errors="coerce")
+    start_t = pd.to_numeric(patients["workshop_start_time"], errors="coerce")
+    return start_t - join_t
+
+
+def _completed_rtt_slack_days(patients: pd.DataFrame) -> pd.Series:
+    """
+    RTT minus assessment-phase calendar time (service + inter-appointment gaps).
+
+    For virtual exits this is near zero when capacity is unlimited; for workshops it
+    includes post-assessment pathway time (workshop queue + sessions).
+    """
+    mask = (patients["rtt_status"] == "completed") & (patients["exit_route"] != "admin_removal")
+    cohort = patients.loc[mask]
+    if cohort.empty:
+        return pd.Series(dtype=float)
+    rtt = pd.to_numeric(cohort["rtt_wait_days"], errors="coerce")
+    assess_start = pd.to_numeric(cohort["assessment_start"], errors="coerce")
+    assess_end = pd.to_numeric(cohort["assessment_completion"], errors="coerce")
+    assess_phase = assess_end - assess_start
+    return rtt - assess_phase
+
+
+def run_infinite_capacity_rtt_sanity_check() -> None:
+    """
+    Near-infinite capacity: completed RTT should fall vs baseline and queue waits shrink.
+
+    Same seed/rep — compares default capacity to ``INFINITE_CAPACITY_HOURS_PER_DAY``.
+    Separates **scheduler wait** (pre-assessment and workshop queue) from **pathway time**
+    embedded in RTT (assessment phase + post-diagnosis route).
+    """
+    _header("INFINITE CAPACITY — RTT & SCHEDULER WAIT")
+    collection_days = 730
+    rep = 0
+    common = dict(collection_days=collection_days, rep=rep)
+
+    _, report_base, base = _run(**common)
+    _, report_inf, inf = _run(
+        **common,
+        workforce_hours_per_day=INFINITE_CAPACITY_HOURS_PER_DAY,
+    )
+
+    if inf["rtt_completed_pathways"] < 20:
+        raise AssertionError(
+            f"too few completed RTT pathways under infinite capacity "
+            f"({inf['rtt_completed_pathways']})"
+        )
+
+    base_rtt = float(base["rtt_completed_mean_days"])
+    inf_rtt = float(inf["rtt_completed_mean_days"])
+    if not (inf_rtt < base_rtt * 0.85):
+        raise AssertionError(
+            f"infinite capacity RTT mean {inf_rtt:.1f} d not sufficiently below "
+            f"baseline {base_rtt:.1f} d (expected queue-dominated reduction)"
+        )
+
+    p_base = report_base.patients
+    p_inf = report_inf.patients
+    started_base = p_base[p_base["assessment_start"].notna()]
+    started_inf = p_inf[p_inf["assessment_start"].notna()]
+    q_base = _pre_assessment_queue_days(started_base).dropna()
+    q_inf = _pre_assessment_queue_days(started_inf).dropna()
+    if q_inf.empty:
+        raise AssertionError("no assessment starts recorded under infinite capacity")
+    med_q_base = float(q_base.median()) if not q_base.empty else float("inf")
+    med_q_inf = float(q_inf.median())
+    if med_q_inf >= med_q_base:
+        raise AssertionError(
+            f"infinite capacity did not reduce median pre-assessment queue "
+            f"({med_q_inf:.2f} d vs baseline {med_q_base:.2f} d)"
+        )
+    if med_q_inf > 7.0:
+        raise AssertionError(
+            f"median pre-assessment queue still high under infinite capacity: {med_q_inf:.1f} d"
+        )
+
+    clinical_inf = p_inf[p_inf["exit_route"] == "workshop_complete"]
+    if not clinical_inf.empty:
+        wq = _workshop_queue_days(clinical_inf).dropna()
+        if not wq.empty and float(wq.median()) > 21.0:
+            raise AssertionError(
+                f"workshop queue median too high under infinite capacity: {float(wq.median()):.1f} d"
+            )
+
+    slack_base = _completed_rtt_slack_days(p_base).dropna()
+    slack_inf = _completed_rtt_slack_days(p_inf).dropna()
+    if slack_inf.empty:
+        raise AssertionError("no completed RTT slack metrics under infinite capacity")
+    med_slack_base = float(slack_base.median()) if not slack_base.empty else float("inf")
+    med_slack_inf = float(slack_inf.median())
+    if med_slack_inf >= med_slack_base:
+        raise AssertionError(
+            "infinite capacity did not reduce RTT slack beyond assessment phase "
+            f"({med_slack_inf:.1f} d vs baseline {med_slack_base:.1f} d)"
+        )
+
+    _pass(
+        f"RTT mean {base_rtt:.0f}→{inf_rtt:.0f} d · pre-assess queue median "
+        f"{med_q_base:.1f}→{med_q_inf:.1f} d · RTT slack median "
+        f"{med_slack_base:.1f}→{med_slack_inf:.1f} d "
+        f"(@ {INFINITE_CAPACITY_HOURS_PER_DAY:.0f} h/d)"
+    )
 
 
 def run_seed_verification() -> None:
@@ -164,7 +564,7 @@ def run_flow_conservation_verification() -> None:
             "referrals != nullified + NHS completed + NHS incomplete"
         )
     arrivals = len(patients)
-    incomplete = int((patients["rtt_pathway_status"] == "incomplete").sum())
+    incomplete = int((patients["rtt_status"] == "incomplete").sum())
     if incomplete != results["rtt_incomplete_pathways"]:
         raise AssertionError(
             f"patient table incomplete ({incomplete}) != "
@@ -185,9 +585,9 @@ def run_rtt_cohort_verification() -> None:
     audit, report, results = _run(collection_days=730)
     patients = report.patients
 
-    nullified = patients[patients["rtt_pathway_status"] == "nullified"]
-    completed = patients[patients["rtt_pathway_status"] == "completed"]
-    incomplete = patients[patients["rtt_pathway_status"] == "incomplete"]
+    nullified = patients[patients["rtt_status"] == "nullified"]
+    completed = patients[patients["rtt_status"] == "completed"]
+    incomplete = patients[patients["rtt_status"] == "incomplete"]
 
     if not nullified.empty and nullified["rtt_wait_days"].notna().any():
         raise AssertionError("nullified referrals must not have NHS RTT wait days")
@@ -266,21 +666,13 @@ def run_demand_stress_verification() -> None:
     """
     _header("DEMAND STRESS")
     params = SCENARIO_PRESETS["high_demand"]
-    audit = Audit()
-    experiment = Experiment(
-        audit=audit,
-        use_fixed_seed=True,
+    _, report, results = _run(
+        collection_days=365,
+        rep=0,
         scenario_name="high_demand",
         **params,
     )
-    results = single_run(
-        experiment,
-        rep=0,
-        warmup_days=0,
-        collection_days=365,
-        export_results=False,
-    )
-    if experiment.last_result is None or not experiment.last_result.verified:
+    if not report.verified:
         raise AssertionError("audit verification flag not set")
     if results["referrals"] <= 0:
         raise AssertionError("no referrals in stress scenario")
@@ -428,7 +820,7 @@ def run_queue_integrity_verification() -> None:
     Queue lengths and waiting-list sizes must stay non-negative.
     """
     _header("QUEUE / WAITING-LIST INTEGRITY")
-    audit, report, _ = _run(collection_days=365)
+    _, report, _, _ = _run_with_system(collection_days=365)
     queues = report.queue_snapshots
     waiting_list = report.waiting_list
     if queues.empty:
@@ -863,7 +1255,7 @@ def run_boundary_conditions_verification() -> None:
     if (collection_patients["arrival_time"] < warmup).any():
         raise AssertionError("collection KPIs include warmup arrivals")
 
-    remaining = collection_patients[collection_patients["rtt_pathway_status"] == "incomplete"]
+    remaining = collection_patients[collection_patients["rtt_status"] == "incomplete"]
     if len(remaining) != results["rtt_incomplete_pathways"]:
         raise AssertionError("NHS incomplete pathways at horizon mismatch")
 
@@ -906,6 +1298,7 @@ def run_all_verifications() -> None:
     run_boundary_conditions_verification()
     run_demand_stress_verification()
     run_extreme_capacity_verification()
+    run_infinite_capacity_rtt_sanity_check()
 
     print("\n" + "#" * 65)
     print(" BEHAVIOURAL VALIDATION")

@@ -118,8 +118,10 @@ class Experiment:
         )
         self.workforce_hours_per_day = kwargs.get(
             "workforce_hours_per_day",
-            kwargs.get("workforce_hours_assessment", WORKFORCE_HOURS_PER_DAY),
+            WORKFORCE_HOURS_PER_DAY,
         )
+        if "workforce_hours_assessment" in kwargs and "workforce_hours_per_day" not in kwargs:
+            self.workforce_hours_per_day = kwargs["workforce_hours_assessment"]
         # Single shared pool: assessment and post-diagnosis clinical support.
         self.workforce_hours_assessment = self.workforce_hours_per_day
 
@@ -220,15 +222,6 @@ class Experiment:
         self.assessment_count_dist = Discrete(
             self.assessment_appointment_counts, self.assessment_appointment_probs, int_seeds[7]
         )
-
-        self.iat_dis = self.iat_dist
-        self.referral_reject_dis = self.referral_reject_dist
-        self.admin_removal_dis = self.admin_removal_dist
-        self.diagnosis_dis = self.diagnosis_dist
-        self.virtual_support_dis = self.virtual_support_dist
-        self.assessment_times_dis = self.assessment_time_dist
-        self.workshop_times_dis = self.workshop_time_dist
-        self.assessment_appointment_count_dis = self.assessment_count_dist
 
     def to_kwargs(self) -> Dict[str, Any]:
         """

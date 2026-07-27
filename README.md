@@ -4,13 +4,9 @@ Discrete-event simulation (DES) for modelling **NHS neurodevelopmental (autism/A
 assessment** pathway flow, waiting lists (Patient Tracking List / PTL), workforce
 capacity, referral-to-treatment (RTT) clocks, and policy interventions.
 
-**Status:** active development.
+**Primary entry point:** Streamlit app in [`streamlit_app/`](streamlit_app/) (`streamlit run streamlit_app/app.py`)
 
-**Primary entry point:** [`demo.ipynb`](demo.ipynb) — calibration, stochastic baseline,
-and policy analysis using the importable [`des/`](des/) package.
-
-> The repository name refers to ADHD; the active model is an NHS assessment pathway.
-> Earlier modelling iterations live in [`notebooks/`](notebooks/).
+**Parameter and KPI definitions:** [`GLOSSARY.md`](GLOSSARY.md) (also **Glossary** in the Streamlit app sidebar).
 
 ## What the model does
 
@@ -21,25 +17,154 @@ a diagnostic outcome, and exit via virtual support or a **clinical workshop grou
 The simulation answers:
 
 - How large will the waiting list grow, and how long do patients wait?
-- What capacity level matches an observed PTL target (calibration)?
+- What simulation horizon matches an observed PTL target (calibration)?
 - Which levers — **more capacity** or **higher administrative removal** — reduce backlog
   and improve 18-week / 52-week waiting-time standards?
 
+## How results are produced
+
+All KPIs come from the audit tables written during simulation. The pipeline is:
+
+```
+Experiment → AutismPathwaySystem → Audit → build_run_report → RunReport
+```
+
+| Step | Module | What you get |
+|------|--------|--------------|
+| Run simulation | `des/runners.py` → `single_run` | `patients`, `capacity`, `model_params`, `report` |
+| Build KPIs | `des/run_report.py` → `build_run_report` | `RunReport` with 8 DataFrame sections |
+| Many seeds | `des/runners.py` → `multiple_replication` | list of single-run tuples |
+| Summarise reps | `des/runners.py` → `summarise_replications` | mean / SD / 95% CI per KPI |
+| PTL count at time *t* | `des/steady_state.py` → `count_backlog_in_system` | backlog census (Run 3) |
+
+### Single run (`demo1.ipynb`)
+
+```python
+from des.audit import Audit
+from des.experiment import Experiment
+from des.runners import single_run
+
+experiment_0 = Experiment(audit=Audit(), ..., **NOTEBOOK_EXPERIMENT_PARAMETERS)
+
+patients, capacity, model_params, report = single_run(
+    experiment_0,
+    rep=0,
+    run_length=365 * 18,
+    warm_up=0,
+    flow_window_days=365.0,
+)
+```
+
+`report` is a `RunReport` object. Display sections directly:
+
+- `report.pathway_funnel` — cohort counts at horizon
+- `report.pathway_exits` — exits (all time and flow window)
+- `report.capacity_utilisation` — workforce hours used / unused
+- `report.waits_stock_by_stage` — waits for patients still in system at horizon
+- `report.rtt_waits_stock`, `report.rtt_breaches_stock` — RTT performance and 18/52-week breaches
+- `report.waits_flow_by_stage` — waits for milestones in the rolling flow window
+- `report.activity_flow` — event counts (referrals, assessments, diagnoses, etc.)
+- `report.model_params` — scenario parameters
+
+### Multiple replications (`demo1.ipynb`)
+
+```python
+from des.runners import multiple_replication, summarise_replications
+
+results = multiple_replication(
+    experiment_0,
+    n_reps=5,
+    run_length=RUN_LENGTH,
+    warm_up=0,
+    flow_window_days=365.0,
+)
+
+replication_report = summarise_replications(results)
+```
+
+Each element of `results` is the same 4-tuple as `single_run`.  
+`summarise_replications` returns a `ReplicationReport` — one DataFrame per KPI section
+with columns `stat`, `n`, `mean`, `sd`, `ci_lower`, `ci_upper`.
+
 ## Three-run framework
 
-`demo.ipynb` runs three independent analyses on the same engine:
+The notebook runs three analyses in sequence. All three use `des/runners.py`; Run 2 and
+Run 3 reuse the matching period **T\*** from Run 1.
 
-| Run | Purpose | API | Output |
-|-----|---------|-----|--------|
-| **Run 1** | Calibration | `des.runs.run1` | Find **Matching Period `T*`** where simulated PTL matches provider target |
-| **Run 2** | Stochastic baseline | `des.runs.run2` | Repeat As-Is scenario over many seeds → KPI means with **95% CIs** |
-| **Run 3** | Policy analysis | `des.runs.run3` | Run to `T*`, apply a policy change, measure **backlog decay** over a decay horizon |
+| Run | Purpose | Function | Main outputs |
+|-----|---------|----------|--------------|
+| **Run 1** | Calibration | `run1` | **T\*** — horizon where simulated KPIs match provider targets |
+| **Run 2** | Stochastic baseline | `run2` | `summary` (CI across reps) + `kpi_snapshots` at T\* |
+| **Run 3** | Policy analysis | `run3` | Backlog decay after a policy switch at T\* |
 
-Policy examples in `demo.ipynb`:
+### Run 1 — find matching period T\*
 
-- **Double capacity** (7 → 14 h/weekday)
-- **Double administrative removal** (10% → 20%)
-- Capacity × decay grid sweeps and comparison plots
+Run 1 repeatedly calls `single_run` at increasing horizons until key KPIs are within
+a tolerance (MAPE) of provider targets — typically PTL size and mean incomplete RTT.
+
+```python
+from des.runners import run1, kpi_snapshot
+
+run1_result = run1(
+    experiment_0,
+    targets={"backlog_patients_at_horizon": 2800},
+    max_period_days=365 * 20,
+    step_days=365,
+    min_period_days=365,
+    match_tolerance=0.05,
+    flow_window_days=365.0,
+)
+
+T_STAR = run1_result["optimal_matching_period_days"]
+run1_result["history"]          # checkpoint table per horizon tried
+run1_result["best_checkpoint"]  # lowest-MAPE row if no exact match
+```
+
+### Run 2 — stochastic baseline at T\*
+
+Run 2 wraps `multiple_replication` + `summarise_replications` at horizon T\*.
+
+```python
+from des.runners import run2
+
+run2_result = run2(
+    experiment_0,
+    matching_period_days=T_STAR,
+    n_reps=5,
+    flow_window_days=365.0,
+)
+
+run2_result["summary"]         # ReplicationReport — same sections as above
+run2_result["kpi_snapshots"]   # one flat KPI row per replication
+```
+
+### Run 3 — policy switch and backlog decay
+
+Run 3 runs one continuous simulation to T\*, applies parameter overrides (e.g. double
+capacity), continues for a **decay horizon**, and compares waiting-list change against
+a control arm with no policy change. Pass `n_reps=5` to replicate the **policy arm**
+only; the baseline control always runs **once**.
+
+```python
+from des.runners import run3
+
+run3_result = run3(
+    experiment_0,
+    matching_period_days=T_STAR,
+    decay_period_days=365,
+    policy_overrides={"workforce_hours_per_day": 14},
+    n_reps=5,
+    include_control=True,
+)
+
+run3_result["policy_summary"]["metrics_summary"]  # policy mean / 95% CI
+run3_result["policy_arm"]["backlog_decay"]
+run3_result["policy_arm"]["backlog_at_end"]
+run3_result["comparison_summary"]                 # policy reps vs one baseline
+```
+
+Policy examples: increase `workforce_hours_per_day`, raise `pct_admin_removal`, or
+combine capacity with different decay horizons.
 
 ## Pathway (current model)
 
@@ -51,142 +176,48 @@ Policy examples in `demo.ipynb`:
 6. Post-diagnosis support — **virtual** (quick exit) or **clinical workshop** (group sessions)
 7. Exit — RTT clock stops; incomplete pathways count on the **PTL**
 
-Pathway diagram: [`figures/nhs-neurodevelopmental-pathway.png`](figures/nhs-neurodevelopmental-pathway.png)
-
 ## Architecture
-
-Model logic lives in the flat `des/` package:
 
 | Module | Role |
 |--------|------|
 | `config.py` | Global defaults — demand, branching, capacity, workshop settings |
-| `experiment.py` | Scenario configuration, RNG streams, parameter overrides |
+| `experiment.py` | Scenario configuration, RNG streams, intervention overrides |
 | `patient.py` | Individual referral SimPy processes |
 | `workforce.py` | `WorkforceHoursResource` — shared weekday clinician-hour pool |
 | `workshop_manager.py` / `workshop_group.py` | Group workshop waiting list and sessions |
 | `system.py` | `AutismPathwaySystem` — referral generation and coordination |
 | `audit.py` | Patient record store during simulation |
-| `kpi.py` | `compute_kpis()` — PTL, RTT, utilisation, validation |
-| `runner.py` | Warm-up + collection `single_run()` / `multiple_replications()` |
-| `runs/run.py` | **Run 1 / 2 / 3** framework (`run1`, `run2`, `run3`) |
+| `run_report.py` | `build_run_report()` — KPI sections from audit tables |
+| `runners.py` | `single_run`, `multiple_replication`, `summarise_replications`, `run1`/`run2`/`run3` |
 | `steady_state.py` | Waiting-list census at a simulation time |
-| `verification.py` | Automated V&V suites |
+| `verification.py` | Model V&V suites (`python -m des.verification`) |
 | `distributions.py` | Seeded stochastic distributions |
 
-### Simulation horizons
+### Stock vs flow vs throughput
 
-**Warm-up + collection** (via `des.runner`):
+- **Stock waits** — snapshot at simulation end (who is still waiting, and for how long)
+- **Flow waits** — patients whose milestone fell in the last `flow_window_days`
+- **Throughput** — count of events (all time and in the flow window)
 
-```
-WARM-UP     system runs, KPI cohort OFF
-COLLECTION  KPI cohort ON (referrals in reporting window)
-```
-
-**Three-run framework** (via `des.runs`):
-
-```
-Run to T* (Matching Period)  →  optional policy switch  →  decay horizon
-```
-
-Defaults in `des/config.py`: 3-year warm-up, 5-year collection window;
-Run 1 finds `T*` by matching `waiting_list_size_all_in_system` to a provider target.
-
-### Resource modelling
-
-- One **shared weekday clinician-hour budget** for assessment and workshop activity
-- Multi-appointment assessment sequences with gaps between appointments
-- Workshop groups (fixed size, session series, max wait to form a group)
-- Daily capacity ledger for utilisation KPIs
-
-## Key performance indicators
-
-Computed by `compute_kpis()` from audit patient records.
-
-### Waiting list / PTL
-
-- `waiting_list_size_all_in_system` / `overall_waiting_list_size` — full PTL (all incomplete pathways)
-- `first_assessment_waiting_list_size` — awaiting first assessment
-- `first_workshop_waiting_list_size` — diagnosed, clinical pathway, awaiting workshop start
-
-### RTT and access standards
-
-- NHS RTT clock: starts at accepted referral, stops at definitive outcome
-- `ptl_under_18_weeks_pct`, `ptl_over_52_weeks_pct` — PTL compliance snapshots
-- `rtt_completed_mean_days`, `rtt_incomplete_mean_days`
-
-### Flow and capacity
-
-- Referrals, acceptances, admin removals, diagnoses, workshop completions
-- `overall_clinician_utilisation`, `assessment_utilisation`
-- `assessments_per_month`, `diagnoses_per_month`
-
-### Policy / calibration (Run 3)
-
-- `waiting_list_at_switch`, `waiting_list_at_end`
-- `backlog_decay_total`, `backlog_decay_per_month`
-
-KPI definitions: `des/kpi_docs.py` (`KPI_GLOSSARY`, `display_kpi_results_reference()`).
-
-## Notebooks
-
-| Notebook | Focus |
-|----------|-------|
-| **`demo.ipynb`** | **Primary demo — Run 1/2/3, PTL calibration, policy tests** |
-| `notebooks/iteration1.ipynb` | Early baseline pathway |
-| `notebooks/iteration2.ipynb` | Clinical branching and review loop |
-| `notebooks/iteration3.ipynb` | Calendar-aware appointment slots |
-| `notebooks/iteration4.ipynb` | Multi-stage workforce-hours model (earlier iteration) |
-
-Legacy pathway diagrams: `figures/01_patient_pathway.png`, `02_clinical_stage.png`,
-`03_workforce_hours.png`.
-
-## Current progress
-
-**Implemented**
-
-- Full neurodevelopmental pathway with admin removal and workshop groups
-- Modular `des/` package with three-run calibration / baseline / policy framework
-- PTL and NHS RTT KPI engine with validation report
-- Run 1 matching-period search with yearly progress checkpoints
-- Run 2 replications with confidence intervals
-- Run 3 policy branching (capacity increase, admin removal, capacity × decay grids)
-- Section 13 policy comparison: double capacity vs double admin removal
-- Automated verification suites in `des/verification.py`
-
-**In progress / planned**
-
-- External validation against published ICB statistics
-- Multi-provider configuration files (`ProviderRunConfig`)
-- Decision-support dashboards and optimisation
-
-## Modelling history (iteration phases)
-
-1. **Foundation** — baseline end-to-end flow (`notebooks/iteration1.ipynb`)
-2. **Branching** — diagnosis branches, post-diagnostic support, review (`iteration2`)
-3. **Calendar slots** — weekday appointment-slot resources (`iteration3`)
-4. **Workforce hours** — multi-stage clinician-hour DES (`iteration4`)
-5. **Provider calibration & policy** — three-run framework, PTL matching, policy decay (`demo.ipynb`)
+These can differ: a long horizon produces a large incomplete stock RTT mean, while flow
+RTT reflects only recent completions.
 
 ## Repository layout
 
 ```
-discrete_event_adhd_sim/
+autsim_des/
 ├── README.md
 ├── LICENSE
 ├── environment.yaml
-├── demo.ipynb                    # primary demo (Run 1 / 2 / 3)
-├── des/                          # Python DES package
-│   ├── audit.py, kpi.py, experiment.py, patient.py, system.py
+├── GLOSSARY.md
+├── streamlit_app/           # Run 1–3 UI (primary)
+├── des/
+│   ├── audit.py, experiment.py, patient.py, system.py
 │   ├── workforce.py, workshop_manager.py, workshop_group.py
-│   ├── runner.py, verification.py, config.py
-│   └── runs/                     # run1, run2, run3 framework
-├── notebooks/                    # iteration1–4 development notebooks
-├── figures/                      # pathway diagrams
-├── pathway_information/
-│   ├── PATHWAYS.md
-│   └── STATE_MAPPING.md
-├── tests/                        # pytest wrappers
-└── run_output/                   # example simulation exports
+│   ├── run_report.py, runners.py, steady_state.py
+│   ├── verification.py, config.py, distributions.py
+│   └── collection_window.py
+└── tests/
 ```
 
 ## Setup
@@ -203,37 +234,38 @@ conda env create -f environment.yaml
 conda activate sim_env
 ```
 
-Run notebooks from the **repository root** so `des` imports resolve. The setup cell in
-`demo.ipynb` locates the project root automatically.
+Run notebooks from the **repository root** so `des` imports resolve.
+
+### Streamlit app
+
+All Streamlit files live in `streamlit_app/`:
+
+```
+streamlit_app/
+  app.py              # Introduction (home page)
+  helpers.py          # Shared UI helpers
+  pages/
+    2_Run_1_Calibration.py
+    3_Run_2_Baseline.py
+    4_Run_3_Policy.py
+```
+
+```bash
+streamlit run streamlit_app/app.py
+```
+
+Pages: **Introduction** → **Run 1 (calibration + parameters)** → **Run 2 (baseline)** → **Run 3 (policy)**.
 
 ## Run
 
-```bash
-jupyter lab demo.ipynb
-```
+Use the Streamlit command above. Session state carries **T\***, calibrated parameters, and Run 3 scenarios across pages.
 
-Execute cells in order from the top. Run 1 (calibration) must complete before Run 2/3
-(which use `T*` from Run 1).
-
-### Verification
-
-```python
-from des import run_all_verifications
-run_all_verifications()
-```
-
-Or via pytest (see `tests/`):
+### Tests and model V&V
 
 ```bash
 pytest tests/ -v
+python -m des.verification   # full structural + behavioural suite
 ```
-
-## Related documentation
-
-- [`pathway_information/PATHWAYS.md`](pathway_information/PATHWAYS.md)
-- [`pathway_information/STATE_MAPPING.md`](pathway_information/STATE_MAPPING.md)
-- [`des/kpi_docs.py`](des/kpi_docs.py) — KPI glossary and calculation notes
-- [`des/model_docs.py`](des/model_docs.py) — parameter definitions
 
 ## License
 

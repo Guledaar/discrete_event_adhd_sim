@@ -88,7 +88,7 @@ class WorkshopGroup:
 
         completion_time = None
         for session_num in range(1, total_sessions + 1):
-            duration_hours = float(self.experiment.workshop_times_dis.sample())
+            duration_hours = float(self.experiment.workshop_time_dist.sample())
             yield from self.system.workforce.request_hours(
                 duration_hours,
                 WorkforceHoursResource.PRIORITY_WORKSHOP,

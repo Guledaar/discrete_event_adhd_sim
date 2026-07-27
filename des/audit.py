@@ -107,6 +107,13 @@ class Audit:
     """
 
     def __init__(self) -> None:
+        """
+        Initialise an empty audit with default collection windows from config.
+
+        Sets ``window`` from :data:`~des.config.WARMUP_DAYS` and
+        :data:`~des.config.COLLECTION_DAYS`, clears patient and capacity stores,
+        and disables live monitoring until explicitly enabled.
+        """
         self.window = CollectionWindow(WARMUP_DAYS, COLLECTION_DAYS)
         self.phases: Optional[SimulationPhases] = None
         self.patients: Dict[int, PatientRecord] = {}
