@@ -1,4 +1,9 @@
-"""Standalone patient-flow trace logging (independent of Experiment)."""
+"""Optional stdout tracing for patient pathway events.
+
+Tracing is controlled by a module-level flag (initially :data:`~des.config.TRACE`).
+Use :func:`enable_trace`, :func:`disable_trace`, or :func:`tracing` during runs.
+Each ``trace_*`` helper formats one milestone line via :func:`trace_line`.
+"""
 
 from __future__ import annotations
 

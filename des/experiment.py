@@ -1,4 +1,8 @@
-"""Scenario configuration, RNG streams, and distribution objects."""
+"""Scenario configuration, RNG streams, and distribution objects.
+
+See :class:`Experiment` for the public API. Distributions are constructed in
+:meth:`Experiment.init_sampling` and re-seeded via :meth:`Experiment.set_random_no_set`.
+"""
 
 from __future__ import annotations
 
@@ -75,6 +79,11 @@ class Experiment:
         scenario_name: str = "baseline",
         **kwargs: Any,
     ) -> None:
+        """
+        Initialise scenario parameters and build seeded distribution objects.
+
+        See the class docstring ``Parameters`` section for argument definitions.
+        """
         self.audit = audit or Audit()
         self.last_result = None
         self.last_export_paths: Dict[str, str] = {}

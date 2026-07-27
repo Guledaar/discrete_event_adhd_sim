@@ -1,11 +1,26 @@
 """Simulation runners for the three-run NHS pathway framework.
 
-Run 1 calibrates horizon T* against provider KPI targets.  Run 2 executes
-stochastic baseline replications at T*.  Run 3 applies a policy switch at T*
-and measures backlog decay over a post-switch window.
+Run 1 calibrates horizon **T\\*** against provider KPI targets. Run 2 executes
+stochastic baseline replications at **T\\***. Run 3 applies a policy switch at
+**T\\*** and measures backlog decay over a post-switch window.
 
-All runs build on :func:`single_run` and :func:`build_run_report` for consistent
-KPI extraction.
+All runs build on :func:`single_run` and :func:`~des.run_report.build_run_report`
+for consistent KPI extraction.
+
+Public functions
+----------------
+single_run, multiple_replication, summarise_replications
+    Atomic replication and aggregation.
+run1, run2, run3
+    Three-run study workflows.
+clone_experiment
+    Independent copy for a new replication or horizon step.
+build_policy_kpi_time_series, summarise_policy_kpi_time_series
+    Run 3 monthly KPI series helpers.
+
+Notes
+-----
+Docstrings follow the NumPy convention (``Parameters``, ``Returns``, …).
 """
 
 import simpy 
@@ -228,7 +243,22 @@ def multiple_replication(
 
 
 def _summary(values, confidence=0.95):
-    """Compute mean, SD, and 95% CI for a numeric series."""
+    """
+    Compute mean, SD, and two-sided confidence interval for a numeric series.
+
+    Parameters
+    ----------
+    values : array-like
+        Sample values (non-numeric entries are coerced and dropped).
+    confidence : float, default 0.95
+        Confidence level for the interval (Student *t*).
+
+    Returns
+    -------
+    pandas.Series
+        Fields ``n``, ``mean``, ``min``, ``max``, ``sd``, ``se``, ``ci_lower``,
+        ``ci_upper``.
+    """
     values = pd.to_numeric(values, errors="coerce").dropna()
     n = len(values)
     if n == 0:
@@ -307,13 +337,15 @@ def summarise_replications(results: list) -> ReplicationReport:
     Parameters
     ----------
     results : list
-        Output of :func:`multiple_replication` (each element includes a
-        :class:`~des.run_report.RunReport` at index 3).
+        Output of :func:`multiple_replication`. Each element is a
+        ``single_run`` tuple; index ``3`` is the :class:`~des.run_report.RunReport`.
 
     Returns
     -------
     ReplicationReport
         Summarised tables for funnel, waits, breaches, capacity, and flow KPIs.
+        Each numeric column is expanded to ``stat``, ``mean``, ``sd``,
+        ``ci_lower``, and ``ci_upper`` rows per group.
     """
     reports = [r[3] for r in results]
     frames = {

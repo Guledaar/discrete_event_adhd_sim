@@ -53,6 +53,16 @@ class Patient:
     """
 
     def __init__(self, patient_id: int, system: AutismPathwaySystem) -> None:
+        """
+        Attach the patient to a pathway system and initialise counters.
+
+        Parameters
+        ----------
+        patient_id : int
+            Unique identifier assigned by :class:`~des.system.AutismPathwaySystem`.
+        system : AutismPathwaySystem
+            Parent system providing ``env``, ``experiment``, workforce, and audit.
+        """
         self.patient_id = patient_id
         self.system = system
         self.env = system.env
@@ -73,11 +83,15 @@ class Patient:
         """
         audit = self.audit
         pid = self.patient_id
+        
+        ### Start of the patient pathway ###
+
+        # 1. Referral arrival
 
         arrival_time = self.env.now
         audit.update_patient(pid, arrival_time=arrival_time)
         trace_referral(arrival_time, pid)
-
+       # 2. Triage
         if self.experiment.referral_reject_dist.sample():
             audit.update_patient(
                 pid,
@@ -91,6 +105,8 @@ class Patient:
         audit.update_patient(pid, triage_outcome="accepted")
         trace_triage_accepted(self.env.now, pid)
 
+        # 3. Admin review
+
         if self.experiment.admin_removal_dist.sample():
             audit.update_patient(
                 pid,
@@ -103,6 +119,8 @@ class Patient:
 
         audit.update_patient(pid, admin_removal=False)
         trace_admin_cleared(self.env.now, pid)
+
+        # 4. Assessment appointments required
 
         self.appointments_required = int(
             self.experiment.assessment_count_dist.sample()
@@ -163,6 +181,8 @@ class Patient:
         audit.update_patient(pid, assessment_completion=self.env.now)
         trace_assessments_finished(self.env.now, pid, self.appointments_required)
 
+        # 5. Post-assessment
+
     def _run_post_assessment(self) -> None:
         """
         Apply diagnosis and route to virtual support or clinical workshop.
@@ -185,8 +205,12 @@ class Patient:
             trace_diagnosis(self.env.now, pid, diagnosed=False)
             return
 
+        # 6. Diagnosis
+
         audit.update_patient(pid, diagnosis=True)
         trace_diagnosis(self.env.now, pid, diagnosed=True)
+
+        # 7. Virtual support 
 
         if self.experiment.virtual_support_dist.sample():
             audit.update_patient(
@@ -199,5 +223,7 @@ class Patient:
             trace_pathway_complete(self.env.now, pid, "virtual support")
             return
 
+        # 8. Clinical workshop
         audit.update_patient(pid, support_type="clinical")
         self.system.workshop_manager.join(self)
+

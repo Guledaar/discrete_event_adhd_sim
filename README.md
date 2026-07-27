@@ -1,4 +1,4 @@
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://autismpathway.streamlit.app/)
+[Open in Streamlit](https://autismpathway.streamlit.app/)
 
 # NHS Neurodevelopmental Assessment Pathway — Discrete Event Simulation
 
@@ -10,27 +10,33 @@ This project is a **discrete-event simulation (DES)** of the NHS pathway from re
 
 We answer planning questions in three layers:
 
-| Question | Approach |
-|----------|----------|
-| When does the model match observed backlog (PTL)? | **Run 1** — search simulation horizon **T\*** |
-| How uncertain are KPIs if nothing changes? | **Run 2** — many replications at **T\*** with 95% CIs |
-| What happens after a policy change at **T\***? | **Run 3** — switch parameters and measure backlog decay vs control |
 
-KPIs separate **stock** (who is on the pathway at the horizon) from **flow** (throughput and recent completions in a rolling window). Definitions: [`GLOSSARY.md`](GLOSSARY.md).
+| Question                                          | Approach                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| When does the model match observed backlog (PTL)? | **Run 1** — search simulation horizon **T**                        |
+| How uncertain are KPIs if nothing changes?        | **Run 2** — many replications at **T** with 95% CIs                |
+| What happens after a policy change at **T**?      | **Run 3** — switch parameters and measure backlog decay vs control |
+
+
+KPIs separate **stock** (who is on the pathway at the horizon) from **flow** (throughput and recent completions in a rolling window). Definitions: `[GLOSSARY.md](GLOSSARY.md)`.
 
 ---
+
+
 
 ## Pathway flow
 
 Referrals → triage → admin review → assessment (capacity bottleneck) → diagnosis → virtual or workshop support → exit. Incomplete pathways at the horizon count on the **PTL / backlog**.
 
-![NHS neurodevelopmental pathway — referral through assessment, diagnosis, and exit routes](figures/nhs-neurodevelopmental-pathway.png)
+NHS neurodevelopmental pathway — referral through assessment, diagnosis, and exit routes
 
 ---
 
+
+
 ## How to use the model
 
-All runners live in [`des/runners.py`](des/runners.py). KPI tables are built by [`des/run_report.py`](des/run_report.py) (`RunReport`, `kpi_snapshot`). Work from the **repository root** so `import des` resolves.
+All runners live in `[des/runners.py](des/runners.py)`. KPI tables are built by `[des/run_report.py](des/run_report.py)` (`RunReport`, `kpi_snapshot`). Work from the **repository root** so `import des` resolves.
 
 ### Pipeline (every run)
 
@@ -38,16 +44,20 @@ All runners live in [`des/runners.py`](des/runners.py). KPI tables are built by 
 Experiment → AutismPathwaySystem (SimPy) → Audit → build_run_report → RunReport
 ```
 
+
+
 ### `single_run` — one stochastic replication
 
 Runs one seed to a horizon `run_length` (days). Returns:
 
-| Output | Meaning |
-|--------|---------|
-| `patients` | One row per referral; milestone times from the audit |
-| `capacity` | Weekday clinician hours released / used |
-| `model_params` | Scenario settings (`Experiment.to_kwargs()`) |
-| `report` | KPI DataFrames at horizon + flow window |
+
+| Output         | Meaning                                              |
+| -------------- | ---------------------------------------------------- |
+| `patients`     | One row per referral; milestone times from the audit |
+| `capacity`     | Weekday clinician hours released / used              |
+| `model_params` | Scenario settings (`Experiment.to_kwargs()`)         |
+| `report`       | KPI DataFrames at horizon + flow window              |
+
 
 ```python
 from des.audit import Audit
@@ -69,7 +79,7 @@ report.rtt_waits_stock         # backlog vs completed RTT
 report.waits_stock_by_stage    # waits by stage (stock)
 ```
 
-Tutorial: [`demo.ipynb`](demo.ipynb).
+Tutorial: `[demo.ipynb](demo.ipynb)`.
 
 ### `multiple_replication` — uncertainty across seeds
 
@@ -83,9 +93,11 @@ summary = summarise_replications(results)   # ReplicationReport
 summary.rtt_waits_stock
 ```
 
-### Run 1 — calibrate horizon **T\***
 
-Steps the simulation horizon (e.g. yearly) until headline KPIs are within a tolerance of **provider targets** (e.g. PTL size). Returns **T\***, MAPE history, and whether a match was found.
+
+### Run 1 — calibrate horizon **T**
+
+Steps the simulation horizon (e.g. yearly) until headline KPIs are within a tolerance of **provider targets** (e.g. PTL size). Returns **T**, MAPE history, and whether a match was found.
 
 ```python
 from des.runners import run1
@@ -103,9 +115,9 @@ run1_result["history"]
 
 Legacy target names map to canonical KPIs (e.g. `waiting_list_size_all_in_system` → backlog at horizon).
 
-### Run 2 — stochastic baseline at **T\***
+### Run 2 — stochastic baseline at **T**
 
-Runs `multiple_replication` at horizon **T\*** from Run 1. Outputs per-rep snapshots and summarised CIs (`run2_result["summary"]`, `run2_result["kpi_snapshots"]`).
+Runs `multiple_replication` at horizon **T** from Run 1. Outputs per-rep snapshots and summarised CIs (`run2_result["summary"]`, `run2_result["kpi_snapshots"]`).
 
 ```python
 from des.runners import run2
@@ -118,9 +130,11 @@ run2_result = run2(
 )
 ```
 
+
+
 ### Run 3 — policy switch and backlog decay
 
-Simulates continuously to **T\***, applies **policy overrides** (e.g. extra clinician hours), runs a **decay window**, and optionally compares to a **control** arm with no change. Paired replications give policy − baseline deltas.
+Simulates continuously to **T**, applies **policy overrides** (e.g. extra clinician hours), runs a **decay window**, and optionally compares to a **control** arm with no change. Paired replications give policy − baseline deltas.
 
 ```python
 from des.runners import run3
@@ -139,37 +153,35 @@ run3_result["policy_summary"]["kpi_time_series"]
 
 ---
 
+
+
 ## Ways to run the project
 
-| Mode | Where |
-|------|--------|
-| **Interactive app** | Streamlit badge at top of this page, or `./run_streamlit.sh` locally |
-| **Notebook walkthrough** | [`demo.ipynb`](demo.ipynb) — `DEMO_FAST` for short runs |
-| **Python scripts / notebooks** | Import `des.runners` as above |
-| **Glossary** | [`GLOSSARY.md`](GLOSSARY.md) and **Glossary** page in the app |
+
+| Mode                           | Where                                                                |
+| ------------------------------ | -------------------------------------------------------------------- |
+| **Interactive app**            | Streamlit badge at top of this page, or `./run_streamlit.sh` locally |
+| **Notebook walkthrough**       | `[demo.ipynb](demo.ipynb)` — `DEMO_FAST` for short runs              |
+| **Python scripts / notebooks** | Import `des.runners` as above                                        |
+| **Glossary**                   | `[GLOSSARY.md](GLOSSARY.md)` and **Glossary** page in the app        |
+
 
 ---
+
+
 
 ## Setup
 
-**Pip:**
+**Conda** (`conda/environment.yml`, env `sim_env`):
 
 ```bash
-pip install -r requirements.txt
-jupyter lab demo.ipynb
-./run_streamlit.sh
-```
-
-**Optional Conda** (`conda/environment.yml`, env `sim_env`):
-
-```bash
-conda env create -f conda/environment.yml
+conda env create -f binder/environment.yml
 conda activate sim_env
 ```
 
-Streamlit Cloud deployment: [`DEPLOY_STREAMLIT.md`](DEPLOY_STREAMLIT.md) (uses root `requirements.txt`).
-
 ---
+
+
 
 ## Repository layout
 
@@ -181,11 +193,13 @@ discrete_event_adhd_sim/
 ├── figures/                # pathway diagrams
 ├── GLOSSARY.md
 ├── requirements.txt
-├── conda/environment.yml
+├── binder/environment.yml
 └── tests/
 ```
 
 ---
+
+
 
 ## Tests and verification
 
@@ -195,6 +209,8 @@ python -m des.verification
 ```
 
 ---
+
+
 
 ## License
 

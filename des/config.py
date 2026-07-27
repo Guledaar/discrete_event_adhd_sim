@@ -1,9 +1,32 @@
 """Global model parameters and default simulation horizons.
 
-Constants in this module define the baseline NHS pathway configuration used
-by :class:`~des.experiment.Experiment` and :class:`~des.audit.Audit` when no
-override is supplied.  Run-specific horizons (T*, decay windows) are set in
-the runners or UI rather than here.
+This module defines baseline NHS pathway configuration used when
+:class:`~des.experiment.Experiment` and :class:`~des.audit.Audit` are
+constructed without explicit overrides.  Run-specific horizons (**T\\***,
+decay windows) are set in :mod:`des.runners` or the Streamlit app, not here.
+
+Attributes
+----------
+WARM_UP_PERIOD, WARMUP_DAYS : float
+    Default warm-up length (days) before KPI collection.
+DEFAULT_RESULTS_COLLECTION_PERIOD, COLLECTION_DAYS : float
+    Default KPI collection window length (days).
+IAT_WEEKDAY : float
+    Mean inter-arrival time between referrals (weekday exponential).
+REFERRALS_PER_DAY : float
+    Implied mean referrals per calendar day from ``IAT_WEEKDAY``.
+PCT_REFERRAL_REJECTED, PCT_ADMIN_REMOVAL : float
+    Triage and admin-removal probabilities.
+PCT_DIAGNOSIS, PCT_VIRTUAL_SUPPORT : float
+    Post-assessment branching probabilities.
+WORKFORCE_HOURS_PER_DAY : float
+    Clinician hours released each simulated weekday (shared pool).
+WORKSHOP_GROUP_SIZE, WORKSHOP_NUM_SESSIONS, WORKSHOP_MAX_WAIT_DAYS : int/float
+    Workshop programme rules.
+SCENARIO_PRESETS : dict
+    Named ``Experiment`` overrides (e.g. ``high_demand``, ``low_capacity``).
+TRACE : bool
+    Initial state for :mod:`des.trace` (usually ``False``).
 """
 
 from __future__ import annotations

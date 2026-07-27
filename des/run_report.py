@@ -196,12 +196,39 @@ def _flow_wait_milestone_label(slug: str) -> str:
 
 
 def normalize_kpi_key(key: str) -> str:
-    """Return the canonical headline KPI key for *key* (targets, metrics, columns)."""
+    """
+    Map a legacy or alias KPI name to the canonical headline key.
+
+    Parameters
+    ----------
+    key : str
+        Target or column name (e.g. ``waiting_list_size_all_in_system``).
+
+    Returns
+    -------
+    str
+        Canonical key from :data:`KPI_TARGET_ALIASES`, or *key* unchanged.
+    """
     return KPI_TARGET_ALIASES.get(key, key)
 
 
 def normalize_kpi_target(name: str, value: float) -> tuple[str, float]:
-    """Map a calibration target name/value to canonical key and units."""
+    """
+    Normalise a Run 1 calibration target to canonical key and units.
+
+    Parameters
+    ----------
+    name : str
+        Target identifier (may be a legacy alias).
+    value : float
+        Provider target value.
+
+    Returns
+    -------
+    tuple[str, float]
+        ``(canonical_key, value)`` with utilisation fractions converted to
+        percent when appropriate.
+    """
     key = normalize_kpi_key(name)
     val = float(value)
     if name in ("overall_clinician_utilisation", "workshop_utilisation") and abs(val) <= 1.0:
@@ -225,6 +252,7 @@ def headline_kpis(report: "RunReport") -> dict[str, Any]:
     months = max(report.flow_window_days / 30.4375, 1e-9)
 
     def flow_rate(metric: str) -> float:
+        """Return activity count per calendar month for *metric* in the flow window."""
         if metric not in report.activity_flow.index:
             return np.nan
         return float(report.activity_flow.loc[metric, "count_in_window"]) / months
@@ -801,6 +829,7 @@ def capacity_utilisation_summary(capacity: pd.DataFrame) -> pd.DataFrame:
     workshop = float(capacity["workshop_hours_used"].sum())
 
     def pct(x: float) -> float:
+        """Express *x* hours as a percentage of total released hours."""
         return 100.0 * x / released if released else np.nan
 
     return pd.DataFrame([{
@@ -1202,12 +1231,27 @@ def flow_counts_with_waits_table(
 
 
 def run_report_summary(report: RunReport) -> dict[str, pd.DataFrame]:
-    """Extract compact labelled KPI tables from a :class:`RunReport`."""
+    """
+    Extract compact, labelled KPI tables from a :class:`RunReport`.
+
+    Parameters
+    ----------
+    report : RunReport
+        Full KPI bundle from :func:`build_run_report`.
+
+    Returns
+    -------
+    dict[str, pandas.DataFrame]
+        Keys include ``pathway_funnel``, ``waits_at_horizon``,
+        ``waits_in_flow_window``, ``rtt_waits``, ``backlog_waiting_time_report``,
+        ``flow_counts_and_waits``, and related subsets for UI display.
+    """
     util = report.capacity_utilisation.iloc[0] if not report.capacity_utilisation.empty else {}
     months = max(report.flow_window_days / 30.4375, 1e-9)
     flow = report.activity_flow
 
     def flow_count(metric: str) -> int:
+        """Return integer activity count for *metric* in the flow window."""
         if metric not in flow.index:
             return 0
         return int(flow.loc[metric, "count_in_window"])

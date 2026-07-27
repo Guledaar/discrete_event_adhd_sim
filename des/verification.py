@@ -1,4 +1,13 @@
-"""Executable verification suites for the NHS pathway DES model."""
+"""Executable verification suites for the NHS pathway DES model.
+
+Run individual ``run_*_verification`` functions for targeted checks, or
+:func:`run_all_verifications` for the full structural and behavioural battery.
+
+Notes
+-----
+Docstrings follow the NumPy convention. Suites print ``PASS`` / ``FAIL`` to
+stdout; they raise :class:`AssertionError` on failure.
+"""
 
 from __future__ import annotations
 
@@ -38,8 +47,33 @@ INFINITE_CAPACITY_HOURS_PER_DAY = 10_000.0
 
 @dataclass
 class VerificationReport:
-    """Legacy-shaped KPI bundle built from ``run_report`` audit tables."""
+    """
+    Legacy-shaped KPI bundle built from ``run_report`` audit tables.
 
+    Used internally by verification scenarios that pre-date
+    :class:`~des.run_report.RunReport`.
+
+    Attributes
+    ----------
+    summary : dict
+        Flat headline metrics for the scenario run.
+    patients : pandas.DataFrame
+        Finalised patient audit export.
+    appointments : pandas.DataFrame
+        Per-patient appointment accounting table.
+    workshops : pandas.DataFrame
+        Workshop group accounting table.
+    resource_days : pandas.DataFrame
+        Daily workforce balance records.
+    queue_snapshots : pandas.DataFrame
+        Optional queue census snapshots.
+    waiting_list : pandas.DataFrame
+        Waiting-list breakdown at horizon.
+    verified : bool, default True
+        Whether structural checks passed for this bundle.
+    validation_report : pandas.DataFrame
+        Optional validation detail table.
+    """
     summary: Dict[str, Any]
     patients: pd.DataFrame
     appointments: pd.DataFrame
@@ -856,6 +890,7 @@ def run_priority_invariant_verification() -> None:
     original_try_grant = WorkforceHoursResource._try_grant
 
     def guarded_try_grant(self: WorkforceHoursResource) -> None:
+        """Wrap ``_try_grant`` and record priority-order violations."""
         request = self._next_waiting_request()
         if request is not None:
             for higher_priority in range(request.priority):
@@ -885,11 +920,13 @@ def run_priority_invariant_verification() -> None:
     grant_order: list[str] = []
 
     def workshop_request() -> Generator[simpy.Event, None, None]:
+        """SimPy process requesting workshop-priority hours."""
         yield env.timeout(0)
         yield from workforce.request_hours(4.0, WorkforceHoursResource.PRIORITY_WORKSHOP)
         grant_order.append("workshop")
 
     def assessment_request() -> Generator[simpy.Event, None, None]:
+        """SimPy process requesting new-assessment-priority hours."""
         yield env.timeout(0)
         yield from workforce.request_hours(4.0, WorkforceHoursResource.PRIORITY_NEW)
         grant_order.append("assessment")
