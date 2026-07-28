@@ -462,7 +462,8 @@ def run1(
     -------
     dict
         Keys include ``optimal_matching_period_days`` (T*), ``matched``,
-        ``history`` (checkpoint DataFrame), and ``minimum_mape``.
+        ``history`` (checkpoint DataFrame), ``minimum_mape``, and
+        ``report_at_t_star`` (:class:`~des.run_report.RunReport` at T*).
     """
     history = []
     best_mape = float("inf")
@@ -471,6 +472,7 @@ def run1(
     matched = False
     run_start = time.perf_counter()
     step_idx = 0
+    report_at_t_star: Any = None
 
     t = float(min_period_days)
     while t <= float(max_period_days):
@@ -496,6 +498,7 @@ def run1(
             warm_up=0,
             flow_window_days=flow_window_days,
         )
+        report_at_t_star = report
         step_elapsed = time.perf_counter() - step_start
         elapsed = time.perf_counter() - run_start
 
@@ -583,6 +586,7 @@ def run1(
         "flow_window_days": float(flow_window_days),
         "elapsed_seconds": total_elapsed,
         "n_steps": step_idx,
+        "report_at_t_star": report_at_t_star,
     }
 
 

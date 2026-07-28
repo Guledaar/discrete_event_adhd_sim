@@ -23,6 +23,10 @@ from kpi_reporting import (
     render_run2_baseline_headline_kpis,
     render_session_status_sidebar,
 )
+from bottleneck_reporting import (
+    render_bottleneck_dashboard,
+    render_bottleneck_replication_summary,
+)
 
 
 def make_run2_progress_ui(status, progress_bar):
@@ -141,6 +145,23 @@ render_run2_baseline_headline_kpis(
     n_reps=int(result["n_reps"]),
     flow_window_days=flow_window_days,
 )
+
+st.markdown("---")
+if result.get("results"):
+    rep0 = result["results"][0]
+    report0 = rep0[3] if len(rep0) > 3 else None
+    if report0 is not None:
+        render_bottleneck_dashboard(
+            report0,
+            horizon_label=f"T* ({t_star:.0f} d)",
+            flow_window_days=flow_window_days,
+            replication_note=(
+                f"Replication **0** of **{result['n_reps']}** — see mean queues below when n > 1."
+            ),
+        )
+        render_bottleneck_replication_summary(summary, n_reps=int(result["n_reps"]))
+else:
+    st.info("Run Run 2 to populate bottleneck charts.")
 
 st.markdown("---")
 with st.expander("Analyst detail — summarised tables (mean / SD / 95% CI)", expanded=False):

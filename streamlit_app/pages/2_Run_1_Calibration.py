@@ -38,6 +38,7 @@ from kpi_reporting import (
     render_run1_outcome_strip,
     render_session_status_sidebar,
 )
+from bottleneck_reporting import render_bottleneck_dashboard
 
 RUN1_FLOW_INDEX = ("horizon_days", "years")
 
@@ -145,7 +146,7 @@ def render_calibration_matching_kpi_guide() -> None:
 | **Question answered** | “Among people who **recently** hit this step, what were **mean/median waits** referral → assessment or referral → diagnosis?” |
 | **Matching targets** | Referral → assessment (mean/median); referral → diagnosis (mean/median) — **years** in the UI. |
 
-Waits in tables and plots use **years** (÷ 365.25); the model still computes days internally.
+Waits in tables and plots use **years** (÷ 365.25).
             """
         )
         st.markdown("**Allowed matching targets**")
@@ -531,12 +532,6 @@ if appt_valid:
 else:
     params = st.session_state.get("experiment_params")
 
-with st.expander("Parameter summary"):
-    if params is not None:
-        st.json(params)
-    else:
-        st.caption("Fix the assessment appointment table to preview parameters.")
-
 st.markdown("---")
 
 if st.button(
@@ -615,6 +610,21 @@ if result is not None:
             row.iloc[0],
             horizon_label="T*",
             flow_window_days=float(result.get("flow_window_days", flow_window)),
+        )
+
+    report_at_t = result.get("report_at_t_star")
+    if report_at_t is not None:
+        st.markdown("---")
+        render_bottleneck_dashboard(
+            report_at_t,
+            horizon_label=f"T* ({t_star:.0f} d)",
+            flow_window_days=float(result.get("flow_window_days", flow_window)),
+            replication_note="Single replication used for Run 1 calibration.",
+        )
+    elif not row.empty:
+        st.info(
+            "Re-run **Run 1 — find T\\*** to refresh the bottleneck panel "
+            "(stage queues and assessment/workshop utilisation)."
         )
 
     backlog_at_t = backlog_wait_snapshots_table(row)

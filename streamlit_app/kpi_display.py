@@ -1,4 +1,4 @@
-"""Consistent KPI display names for Streamlit Run 1–3 (see also ``GLOSSARY.md``)."""
+"""Consistent KPI display names for Streamlit Run 1–3."""
 
 from __future__ import annotations
 

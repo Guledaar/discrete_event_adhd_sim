@@ -30,6 +30,7 @@ from kpi_reporting import (
     render_run3_decision_strip,
     render_session_status_sidebar,
 )
+from bottleneck_reporting import render_bottleneck_dashboard, render_bottleneck_pair
 
 from des.run_report import run_report_summary
 
@@ -648,6 +649,30 @@ def render_run3_last_run_summary(result: dict[str, Any]) -> None:
     st.markdown(planner_question(3))
     render_run3_decision_strip(result)
     render_end_of_decay_core_compare(result)
+
+    ctrl = (result.get("control_replications") or [{}])[0]
+    pol = (result.get("policy_replications") or [{}])[0]
+    ctrl_report = ctrl.get("report")
+    pol_report = pol.get("report")
+    end_horizon = float(result.get("matching_period_days", 0)) + float(
+        result.get("decay_period_days", 0)
+    )
+    fw = float(result.get("flow_window_days", 365))
+    if ctrl_report is not None and pol_report is not None:
+        st.markdown("---")
+        render_bottleneck_pair(
+            ctrl_report,
+            pol_report,
+            horizon_label=f"end of decay ({end_horizon:.0f} d)",
+            flow_window_days=fw,
+        )
+    elif pol_report is not None:
+        st.markdown("---")
+        render_bottleneck_dashboard(
+            pol_report,
+            horizon_label=f"end of decay ({end_horizon:.0f} d)",
+            flow_window_days=fw,
+        )
 
     with st.expander("Analyst detail — arm snapshots, backlog report, flow tables", expanded=False):
         for title, key in [("Baseline", "control_summary"), ("Policy", "policy_summary")]:
