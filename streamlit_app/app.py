@@ -22,7 +22,7 @@ from helpers import init_session_state
 from kpi_reporting import render_session_status_sidebar
 
 _FIGURES = Path(__file__).resolve().parent.parent / "figures"
-_PATHWAY_FLOWCHART = _FIGURES / "nhs-neurodevelopmental-pathway.png"
+_PATHWAY_FLOWCHART = _FIGURES / "Autism Assessment Referral-2026-07-28-083647.png"
 
 st.set_page_config(
     page_title="Neurodevelopmental(Autism) Pathway Discrete Event Simulation",
